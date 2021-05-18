@@ -17,6 +17,7 @@ DBSCAN
 
 """
 import numpy as np
+from sklearn.datasets import make_blobs, make_moons
 
 import unittest
 
@@ -108,7 +109,7 @@ def gen_dbscan_dataset1():
     :return: list of points (each point is a tuple)
     """
     points=np.concatenate((gen_circle((500,500),315,400),
-                           gen_circle((170,885),80,75),
+                           gen_circle((170,115),80,75),
                            gen_circle((828,128),85,75),
                            gen_circle((800,828),80,75)))
 
@@ -123,28 +124,28 @@ def gen_dbscan_dataset2():
 
     :return: list of points (each point is a tuple)
     """
-    shape1 = [ ((692,374),(758,254)),
-               ((758,254),(856,352)) ]
+    shape1 = [ ((692,626),(758,746)),
+               ((758,746),(856,648)) ]
     width1 = 40
-    shape2 = [ ((476,708),(674,564)),
-               ((674,564),(908,642)),
-               ((908,642),(930,472)) ]
+    shape2 = [ ((476,292),(674,436)),
+               ((674,436),(908,358)),
+               ((908,358),(930,528)) ]
     width2 = 40
-    shape3 = [ ((350,440),(274,466)),
-               ((274,466),(244,358)),
-               ((244,358),(306,330)) ]
+    shape3 = [ ((350,560),(274,534)),
+               ((274,534),(244,642)),
+               ((244,642),(306,670)) ]
     width3 = 30
 
-    shape4 = [ ((90,384),(114,280)),
-               ((114,280),(306,148)),
-               ((306,148),(446,242)),
-               ((446,242),(522,384)),
-               ((522,384),(522,472)),
-               ((522,472),(316,702)),
-               ((316,702),(300,768)),
-               ((300,768),(380,834)),
-               ((380,834),(564,806)),
-               ((564,806),(660,706)) ]
+    shape4 = [ ((90,616),(114,720)),
+               ((114,720),(306,852)),
+               ((306,852),(446,758)),
+               ((446,758),(522,616)),
+               ((522,616),(522,528)),
+               ((522,528),(316,298)),
+               ((316,298),(300,232)),
+               ((300,232),(380,166)),
+               ((380,166),(564,194)),
+               ((564,194),(660,294)) ]
     width4 = 40
 
     points=np.concatenate((gen_shape(shape1,width1,100),
@@ -164,23 +165,52 @@ def gen_dbscan_dataset3():
 
     :return: list of points (each point is a tuple)
     """
-    shape1 = [ ((340,760),(645,750)),
-               ((645,750),(715,660)),
-               ((715,660),(810,625)),
-               ((645,750),(692,810)),
-               ((692,810),(787,845)),
-               ((787,845),(848,857)) ]
+    shape1 = [ ((340,240),(645,250)),
+               ((645,250),(715,340)),
+               ((715,340),(810,375)),
+               ((645,250),(692,190)),
+               ((692,190),(787,155)),
+               ((787,155),(848,143)) ]
     width1 = 30
-    shape2 = [ ((781,746),(890,742)) ]
+    shape2 = [ ((781,254),(890,258)) ]
     width2 = 30
 
     points=np.concatenate((gen_shape(shape1,width1,300),
                            gen_shape(shape2,width2,100),
-                           gen_circle((190,400),70,100),
-                           gen_circle((680,300),125,200),
+                           gen_circle((190,600),70,100),
+                           gen_circle((680,700),125,200),
                            gen_square((500,500),500,70)))
 
     return points
+
+def gen_dbscan_blobs(samples, blobs, std, random_state):
+    """Generate dataset of a few blobs
+
+    Parameters:
+    :param samples: number of samples
+    :param blobs: number of blobs
+
+    :return: list of points (each point is a tuple)
+    """
+    X, y_true = make_blobs(n_samples=samples,
+                           centers=blobs,
+                           cluster_std=std,
+                           random_state=random_state)
+
+    return X
+
+def gen_dbscan_moons(samples, noise=0.1,random_state=None):
+    """Generate dataset of a few moons (non-convex)
+
+    Parameters:
+    :param samples: number of samples
+    :param blobs: number of blobs
+
+    :return: list of points (each point is a tuple)
+    """
+    X, y_true = make_moons(n_samples=samples, noise=noise)
+
+    return X
 
 class TestGenDbscanDataset(unittest.TestCase):
     def test_gen_shape(self):
