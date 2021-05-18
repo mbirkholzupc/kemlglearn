@@ -9,7 +9,7 @@ DBSCAN
 
 :Authors: birkholz
 
-:License: BSD 3 clause (due to using API of DBSACN from scikit-learn)
+:License: BSD 3 clause (due to using API of DBSCAN from scikit-learn)
 
 :Version:
 
@@ -17,9 +17,7 @@ DBSCAN
 
 """
 from sklearn.base import BaseEstimator, ClusterMixin
-from sklearn.metrics.pairwise import euclidean_distances
 from sklearn.neighbors import NearestNeighbors
-from numpy.random import choice
 import numpy as np
 
 from collections import deque
@@ -149,26 +147,65 @@ class DBSCAN(BaseEstimator, ClusterMixin):
         self.fit(X,sample_weight=None)
         return self.labels_
 
+# Helper function to plot DBSCAN results based on DBSCAN example in scikit-learn user guide
+def plot_dbscan_results(x, labels, core_sample_indices):
+    core_samples_mask=np.zeros_like(labels, dtype=bool)
+    core_samples_mask[core_sample_indices] = True
+    n_clusters_=len(set(labels))-(1 if -1 in labels else 0)
+    n_noise_ = list(labels).count(-1)
+
+    unique_labels = set(labels)
+    colors = [plt.cm.Spectral(each) for each in np.linspace(0, 1, len(unique_labels))]
+
+    for k, col in zip(unique_labels, colors):
+        if k == -1:
+            col = [0, 0, 0, 1] # Black for noise
+
+        class_member_mask = (labels == k)
+
+        xy = x[class_member_mask & core_samples_mask]
+        plt.plot(xy[:, 0], xy[:, 1], 'o', markerfacecolor=tuple(col),
+            markeredgecolor='k', markersize=14)
+
+        xy = x[class_member_mask & ~core_samples_mask]
+        plt.plot(xy[:, 0], xy[:, 1], 'o', markerfacecolor=tuple(col),
+            markeredgecolor='k', markersize=6)
+
+    # Show clusters (and noise)
+    plt.title(f'Estimated number of clusters: {n_clusters_}')
+    plt.show()
+
 class TestDBSCAN(unittest.TestCase):
+    def test_db1(self):
+        X=gen_dbscan_dataset1()
+        mydbscan=DBSCAN(eps=43,min_samples=4).fit(X)
+        plot_dbscan_results(X, mydbscan.labels_, mydbscan.core_sample_indices_)
+        self.assertEqual(1,1)
+
+    def test_db2(self):
+        X=gen_dbscan_dataset2()
+        mydbscan=DBSCAN(eps=36,min_samples=4).fit(X)
+        plot_dbscan_results(X, mydbscan.labels_, mydbscan.core_sample_indices_)
+        self.assertEqual(1,1)
+
+    def test_db3(self):
+        X=gen_dbscan_dataset3()
+        mydbscan=DBSCAN(eps=40,min_samples=4).fit(X)
+        plot_dbscan_results(X, mydbscan.labels_, mydbscan.core_sample_indices_)
+        self.assertEqual(1,1)
+
+class TestDBSCANInteractive(unittest.TestCase):
     def test_one(self):
         print('\nRunning test_one:')
         n_samples = 4000
         n_blobs = 4
-        X, y_true = make_blobs(n_samples=n_samples,
-                               centers=n_blobs,
-                               cluster_std=0.60,
-                               random_state=0)
-        X = X[:, ::-1]
+        X=gen_dbscan_blobs(n_samples, n_blobs, std=0.50, random_state=None)
+        mydbscan=DBSCAN(eps=0.3,min_samples=4).fit(X)
+        plot_dbscan_results(X, mydbscan.labels_, mydbscan.core_sample_indices_)
 
-        plt.figure(1)
-        plt.scatter(X[:,0], X[:,1])
-        plt.show()
-
-        X, y_true = make_moons(n_samples=n_samples, noise=0.1)
-        plt.figure(1)
-        plt.scatter(X[:,0], X[:,1], s=100)
-        plt.show()
-        print('Done with test_one.')
+        X = gen_dbscan_moons(n_samples)
+        mydbscan=DBSCAN(eps=0.08,min_samples=4).fit(X)
+        plot_dbscan_results(X,mydbscan.labels_, mydbscan.core_sample_indices_)
         self.assertEqual(1,1)
 
     def test_two(self):
@@ -186,39 +223,30 @@ class TestDBSCAN(unittest.TestCase):
         plt.scatter(X[:,0], X[:,1])
         plt.show()
 
-        #mydbscan=DBSCAN(eps=0.2,min_samples=4).fit(X)
         mydbscan=DBSCAN(eps=0.5,min_samples=4).fit(X)
-        print(mydbscan.labels_)
 
         # The following code is based on DBSCAN example in scikit-learn user guide
-        core_samples_mask=np.zeros_like(mydbscan.labels_, dtype=bool)
-        core_samples_mask[mydbscan.core_sample_indices_] = True
-        labels=mydbscan.labels_
-        n_clusters_=len(set(labels))-(1 if -1 in labels else 0)
-        n_noise_ = list(labels).count(-1)
-
-        unique_labels = set(labels)
-        colors = [plt.cm.Spectral(each) for each in np.linspace(0, 1, len(unique_labels))]
-
-        for k, col in zip(unique_labels, colors):
-            if k == -1:
-                col = [0, 0, 0, 1] # Black for noise
-
-            class_member_mask = (labels == k)
-
-            xy = X[class_member_mask & core_samples_mask]
-            plt.plot(xy[:, 0], xy[:, 1], 'o', markerfacecolor=tuple(col),
-                markeredgecolor='k', markersize=14)
-
-            xy = X[class_member_mask & ~core_samples_mask]
-            plt.plot(xy[:, 0], xy[:, 1], 'o', markerfacecolor=tuple(col),
-                markeredgecolor='k', markersize=6)
-
-        # Show clusters (and noise)
-        plt.title(f'Estimated number of clusters: {n_clusters_}')
-        plt.show()
+        plot_dbscan_results(X,mydbscan.labels_, mydbscan.core_sample_indices_)
 
         print('Done with test_two.')
+        self.assertEqual(1,1)
+
+    def test_db1(self):
+        X=gen_dbscan_dataset1()
+        mydbscan=DBSCAN(eps=43,min_samples=4).fit(X)
+        plot_dbscan_results(X, mydbscan.labels_, mydbscan.core_sample_indices_)
+        self.assertEqual(1,1)
+
+    def test_db2(self):
+        X=gen_dbscan_dataset2()
+        mydbscan=DBSCAN(eps=36,min_samples=4).fit(X)
+        plot_dbscan_results(X, mydbscan.labels_, mydbscan.core_sample_indices_)
+        self.assertEqual(1,1)
+
+    def test_db3(self):
+        X=gen_dbscan_dataset3()
+        mydbscan=DBSCAN(eps=40,min_samples=4).fit(X)
+        plot_dbscan_results(X, mydbscan.labels_, mydbscan.core_sample_indices_)
         self.assertEqual(1,1)
 
 if __name__ == '__main__':
@@ -226,10 +254,10 @@ if __name__ == '__main__':
     import logging
 
     from sklearn.datasets import make_blobs, make_moons
-    from scipy.spatial import distance
-    from sklearn.metrics import pairwise
     import matplotlib.pyplot as plt
-    from numpy.random import normal
+
+    from gen_dbscan_dataset import gen_dbscan_dataset1, gen_dbscan_dataset2, gen_dbscan_dataset3, \
+                                   gen_dbscan_blobs, gen_dbscan_moons
 
     # Set up logging subsystem. Level should be one of: CRITICAL, ERROR, WARNING, INFO, DEBUG, NOTSET
     logging.basicConfig()
