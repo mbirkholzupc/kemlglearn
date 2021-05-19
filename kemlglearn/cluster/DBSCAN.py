@@ -141,6 +141,7 @@ class DBSCAN(BaseEstimator, ClusterMixin):
         return self.labels_
 
 # Helper function to plot DBSCAN results based on DBSCAN example in scikit-learn user guide
+# If data has more than two dimensions, the first two will be used
 def plot_dbscan_results(x, labels, core_sample_indices):
     core_samples_mask=np.zeros_like(labels, dtype=bool)
     core_samples_mask[core_sample_indices] = True
@@ -304,6 +305,28 @@ class TestDBSCAN(unittest.TestCase):
                              unshuffled_labels, unshuffled_corepts,
                              refdbscan.labels_, refdbscan.core_sample_indices_))
 
+    def test_4d(self):
+        # Dataset from https://archive.ics.uci.edu/ml/datasets/banknote+authentication
+        df=pd.read_csv('../datasets/data_banknote_authentication.csv', header=None)
+        X=df.to_numpy()
+
+        # Shuffle the data to force (possibly) some border points to be different
+        shuffle, unshuffle = gen_shuffle_unshuffle_idx(X)
+        shuffleX = X[shuffle]
+        # Used DBSCAN_param_helper.py to pick out good parameters
+        mydbscan=DBSCAN(eps=1.66,min_samples=8).fit(shuffleX)
+        # Unshuffle the results so they can be compared with original indices
+        unshuffled_labels=mydbscan.labels_[unshuffle]
+        unshuffled_corepts=np.array([shuffle[x] for x in mydbscan.core_sample_indices_])
+
+        refdbscan=sklDBSCAN(eps=1.66,min_samples=8).fit(X)
+
+        print(np.unique(mydbscan.labels_))
+        print(np.unique(refdbscan.labels_))
+        self.assertEqual(True,dbscan_equivalent_results(
+                         unshuffled_labels, unshuffled_corepts,
+                         refdbscan.labels_, refdbscan.core_sample_indices_))
+
 class TestDBSCANInteractive(unittest.TestCase):
     def test_one(self):
         n_samples = 4000
@@ -362,6 +385,7 @@ if __name__ == '__main__':
 
     from sklearn.datasets import make_blobs, make_moons
     import matplotlib.pyplot as plt
+    import pandas as pd
 
     from gen_dbscan_dataset import gen_dbscan_dataset1, gen_dbscan_dataset2, gen_dbscan_dataset3, \
                                    gen_dbscan_blobs, gen_dbscan_moons
