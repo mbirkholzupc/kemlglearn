@@ -19,6 +19,7 @@ DBSCAN
 """
 import argparse
 
+import pandas as pd
 import numpy as np
 from scipy.spatial import distance, distance_matrix
 import matplotlib.pyplot as plt
@@ -32,6 +33,7 @@ from DBSCAN import DBSCAN
 __author__ = 'birkholz'
 
 # Helper function to plot DBSCAN results based on DBSCAN example in scikit-learn user guide
+# If data has more than two dimensions, the first two will be used
 def plot_dbscan_results(x, labels, core_sample_indices):
     core_samples_mask=np.zeros_like(labels, dtype=bool)
     core_samples_mask[core_sample_indices] = True
@@ -86,7 +88,8 @@ if __name__ == '__main__':
         else:
             raise Exception('Try again. Could not understand requested pattern.')
     elif args['filename']:
-        raise Exception('Not implemented.')
+        df=pd.read_csv(args['filename'],header=None)
+        X=df.to_numpy()
     else:
         raise Exception('Need to specify filename or type of data to generate')
 
@@ -108,8 +111,8 @@ if __name__ == '__main__':
         # Plot in descending order to match graph in paper
         plt.plot(x,sorted_kdist[::-1],'.')
         plt.title(str(k) + '-dist')
-        plt.xlabel("Points sorted According to Distance of {} -dist Nearest Neighbor".format(str(k)))
-        plt.ylabel("{}th Nearest Neighbour Distance".format(str(k)))
+        plt.xlabel("Points sorted According to Distance of {}-dist Nearest Neighbor".format(str(k)))
+        plt.ylabel("{}-Nearest Neighbor Distance".format(str(k)))
         plt.show()
 
         newk = input('Enter new k (leave blank to proceed with current value k=' + str(k) + '): ')
