@@ -20,6 +20,8 @@ from sklearn.base import BaseEstimator, ClusterMixin
 from sklearn.neighbors import NearestNeighbors
 import numpy as np
 
+from sklearn.cluster import DBSCAN as sklDBSCAN
+
 from collections import deque
 import unittest
 
@@ -71,18 +73,12 @@ class DBSCAN(BaseEstimator, ClusterMixin):
         :return: DBSCAN object after clustering
         """
 
-        # Do DBSCAN here
-        print('Would be doing DBSCAN...')
-
         # Set up neighbor query object based on requested algorithm
         # Refer to https://scikit-learn.org/stable/modules/neighbors.html#unsupervised-neighbors
-        print('before NN fit...')
-        print('NN radius: ' +str(self.eps))
         nn=NearestNeighbors(radius=self.eps)
         nn.fit(X)
-        print('after NN fit')
         # Default each label to 0 (NO_CLUSTER)
-        self.labels_=np.zeros((len(X),))
+        self.labels_=np.zeros((len(X),), dtype=int)
         cur_cluster_label = NO_CLUSTER
         seeds=deque()
         self.core_sample_indices_ = []
@@ -96,9 +92,6 @@ class DBSCAN(BaseEstimator, ClusterMixin):
 
             # neighborlist[0][0] contains distances, neighborlist[1][0] contains indices
             neighborlist = nn.radius_neighbors([pt])
-            print(len(neighborlist[0][0]))
-            print(neighborlist[0][0])
-            print(neighborlist[1][0])
             if len(neighborlist[0][0]) < self.min_samples:
                 self.labels_[i] = NOISE
                 continue
@@ -131,7 +124,7 @@ class DBSCAN(BaseEstimator, ClusterMixin):
 
                 # Add new reachable points to seed list if we haven't checked them out yet
                 for n in neighborlist[1][0]:
-                    if self.labels_[n] == NO_CLUSTER:
+                    if self.labels_[n] == NO_CLUSTER or self.labels_[n] == NOISE:
                         seeds.append(n)
 
         return self
@@ -175,28 +168,144 @@ def plot_dbscan_results(x, labels, core_sample_indices):
     plt.title(f'Estimated number of clusters: {n_clusters_}')
     plt.show()
 
+def dbscan_equivalent_results(labels1, corepts1, labels2, corepts2):
+    # This is not the absolute most efficient implementation, but it
+    # doesn't have to be since it's just a unit test.
+
+    # Confirm results are identical. They should have all the same core points, but
+    # it is possible for a border point to be grouped with a different cluster if it's
+    # close enough to two different clusters.
+
+    # Noise must be identical
+    noise1=set(np.where(labels1==NOISE)[0])
+    noise2=set(np.where(labels2==NOISE)[0])
+
+    if noise1 != noise2:
+        return False
+
+    # Core samples must be identical (although they might belong to different clusters)
+    if set(corepts1) != set(corepts2):
+        return False
+
+    # Since the clusters may have different cluster IDs, we'll have to kind of guess which
+    # clusters match.
+    uniquelabels1 = np.unique(labels1)
+    uniquelabels2 = np.unique(labels2)
+
+    clusterdifferences = []
+
+    for lbl1 in uniquelabels1:
+        if lbl1 == -1:
+            # Already checked noise, so continue with next cluster
+            continue
+        # Try to find most similar cluster
+        set1=set(np.where(labels1==lbl1)[0])
+        # Format of tuple: how many different samples there are, the list of different samples
+        bestcluster = (None, None)
+        for lbl2 in uniquelabels2:
+            if lbl2 == -1:
+                continue
+            set2 = set(np.where(labels2==lbl2)[0])
+            cluster_difference = set1 ^ set2
+            mag_cluster_difference = len(cluster_difference)
+            if bestcluster == (None,None):
+                bestcluster = (mag_cluster_difference, cluster_difference)
+            elif mag_cluster_difference < bestcluster[0]:
+                bestcluster = (mag_cluster_difference, cluster_difference)
+
+            # If they're identical, we can skip to the next iteration directly
+            if mag_cluster_difference == 0:
+                break
+
+        if bestcluster[0] != None and bestcluster[0] > 0:
+            clusterdifferences.append(bestcluster)
+
+    if len(clusterdifferences) != 0:
+        for difference in clusterdifferences:
+            for pt in difference[1]:
+                if pt in set(corepts1):
+                    # If any core points are different, we're in trouble. Border
+                    # points can be in different clusters though.
+                    return False
+
+    return True
+
+def gen_shuffle_unshuffle_idx(data):
+    shuffle_idx=np.random.permutation(len(data))
+    revidx=[(x,y) for x,y in enumerate(shuffle_idx)]
+    revidx=sorted(revidx, key=lambda x: x[1])
+    unshuffle_idx=np.array([x[0] for x in revidx])
+    return shuffle_idx, unshuffle_idx
+
 class TestDBSCAN(unittest.TestCase):
     def test_db1(self):
-        X=gen_dbscan_dataset1()
-        mydbscan=DBSCAN(eps=43,min_samples=4).fit(X)
-        plot_dbscan_results(X, mydbscan.labels_, mydbscan.core_sample_indices_)
-        self.assertEqual(1,1)
+        # 200 iterations generally seems to be enough to get an ambiguous border point
+        for rs in range(200):
+            X=gen_dbscan_dataset1(random_state=rs)
+
+            # Shuffle the data to force (possibly) some border points to be different
+            shuffle, unshuffle = gen_shuffle_unshuffle_idx(X)
+            shuffleX = X[shuffle]
+            mydbscan=DBSCAN(eps=43,min_samples=4).fit(shuffleX)
+            # Unshuffle the results so they can be compared with original indices
+            unshuffled_labels=mydbscan.labels_[unshuffle]
+            unshuffled_corepts=np.array([shuffle[x] for x in mydbscan.core_sample_indices_])
+
+            #plot_dbscan_results(shuffleX, mydbscan.labels_, mydbscan.core_sample_indices_)
+
+            refdbscan=sklDBSCAN(eps=43,min_samples=4).fit(X)
+            #plot_dbscan_results(X,refdbscan.labels_, refdbscan.core_sample_indices_)
+
+            self.assertEqual(True,dbscan_equivalent_results(
+                             unshuffled_labels, unshuffled_corepts,
+                             refdbscan.labels_, refdbscan.core_sample_indices_))
 
     def test_db2(self):
-        X=gen_dbscan_dataset2()
-        mydbscan=DBSCAN(eps=36,min_samples=4).fit(X)
-        plot_dbscan_results(X, mydbscan.labels_, mydbscan.core_sample_indices_)
-        self.assertEqual(1,1)
+        # 100 iterations generally seems to be enough to get an ambiguous border point
+        for rs in range(100):
+            X=gen_dbscan_dataset2(random_state=rs)
+
+            # Shuffle the data to force (possibly) some border points to be different
+            shuffle, unshuffle = gen_shuffle_unshuffle_idx(X)
+            shuffleX = X[shuffle]
+            mydbscan=DBSCAN(eps=36,min_samples=4).fit(shuffleX)
+            # Unshuffle the results so they can be compared with original indices
+            unshuffled_labels=mydbscan.labels_[unshuffle]
+            unshuffled_corepts=np.array([shuffle[x] for x in mydbscan.core_sample_indices_])
+
+            #plot_dbscan_results(shuffleX, mydbscan.labels_, mydbscan.core_sample_indices_)
+
+            refdbscan=sklDBSCAN(eps=36,min_samples=4).fit(X)
+            #plot_dbscan_results(X,refdbscan.labels_, refdbscan.core_sample_indices_)
+
+            self.assertEqual(True,dbscan_equivalent_results(
+                             unshuffled_labels, unshuffled_corepts,
+                             refdbscan.labels_, refdbscan.core_sample_indices_))
 
     def test_db3(self):
-        X=gen_dbscan_dataset3()
-        mydbscan=DBSCAN(eps=40,min_samples=4).fit(X)
-        plot_dbscan_results(X, mydbscan.labels_, mydbscan.core_sample_indices_)
-        self.assertEqual(1,1)
+        # 500 iterations generally seems to be enough to get an ambiguous border point
+        for rs in range(500):
+            X=gen_dbscan_dataset3(random_state=rs)
+
+            # Shuffle the data to force (possibly) some border points to be different
+            shuffle, unshuffle = gen_shuffle_unshuffle_idx(X)
+            shuffleX = X[shuffle]
+            mydbscan=DBSCAN(eps=40,min_samples=4).fit(shuffleX)
+            # Unshuffle the results so they can be compared with original indices
+            unshuffled_labels=mydbscan.labels_[unshuffle]
+            unshuffled_corepts=np.array([shuffle[x] for x in mydbscan.core_sample_indices_])
+
+            #plot_dbscan_results(shuffleX, mydbscan.labels_, mydbscan.core_sample_indices_)
+
+            refdbscan=sklDBSCAN(eps=40,min_samples=4).fit(X)
+            #plot_dbscan_results(X,refdbscan.labels_, refdbscan.core_sample_indices_)
+
+            self.assertEqual(True,dbscan_equivalent_results(
+                             unshuffled_labels, unshuffled_corepts,
+                             refdbscan.labels_, refdbscan.core_sample_indices_))
 
 class TestDBSCANInteractive(unittest.TestCase):
     def test_one(self):
-        print('\nRunning test_one:')
         n_samples = 4000
         n_blobs = 4
         X=gen_dbscan_blobs(n_samples, n_blobs, std=0.50, random_state=None)
@@ -204,12 +313,11 @@ class TestDBSCANInteractive(unittest.TestCase):
         plot_dbscan_results(X, mydbscan.labels_, mydbscan.core_sample_indices_)
 
         X = gen_dbscan_moons(n_samples)
-        mydbscan=DBSCAN(eps=0.08,min_samples=4).fit(X)
+        mydbscan=DBSCAN(eps=0.085,min_samples=4).fit(X)
         plot_dbscan_results(X,mydbscan.labels_, mydbscan.core_sample_indices_)
         self.assertEqual(1,1)
 
     def test_two(self):
-        print('\nRunning test_two:')
         n_samples = 400
         n_blobs = 4
         X, y_true = make_blobs(n_samples=n_samples,
@@ -228,7 +336,6 @@ class TestDBSCANInteractive(unittest.TestCase):
         # The following code is based on DBSCAN example in scikit-learn user guide
         plot_dbscan_results(X,mydbscan.labels_, mydbscan.core_sample_indices_)
 
-        print('Done with test_two.')
         self.assertEqual(1,1)
 
     def test_db1(self):
