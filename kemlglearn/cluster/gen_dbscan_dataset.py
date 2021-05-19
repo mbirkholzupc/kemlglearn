@@ -23,10 +23,7 @@ import unittest
 
 __author__ = 'birkholz'
 
-# Random number generator
-the_rng = np.random.default_rng()
-
-def gen_circle(center,radius,n):
+def gen_circle(center,radius,n,random_state=None):
     """Generate circular uniform distribution
 
     This function generates a uniform distribution of 2D points within a circular range
@@ -39,13 +36,15 @@ def gen_circle(center,radius,n):
 
     :return: list of points (each point is a tuple)
     """
-    mag=[radius*np.sqrt(np.random.uniform(0,1)) for x in range(n)]
-    phs=[np.pi*np.random.uniform(0,2) for x in range(n)]
+    circle_rng = np.random.default_rng() if random_state == None else np.random.default_rng(random_state)
+
+    mag=[radius*np.sqrt(circle_rng.uniform(0,1)) for x in range(n)]
+    phs=[np.pi*circle_rng.uniform(0,2) for x in range(n)]
     points=np.array([[center[0]+m*np.cos(p), center[1]+m*np.sin(p)] for m, p in zip(mag,phs)])
 
     return points
 
-def gen_square(center,halflength,n):
+def gen_square(center,halflength,n,random_state=None):
     """Generate square uniform distribution
 
     This function generates a uniform distribution of 2D points within a square range
@@ -58,13 +57,15 @@ def gen_square(center,halflength,n):
 
     :return: list of points (each point is a tuple)
     """
+    square_rng = np.random.default_rng() if random_state == None else np.random.default_rng(random_state)
+
     xoffset=[halflength*np.random.uniform(-1,1) for x in range(n)]
     yoffset=[halflength*np.random.uniform(-1,1) for x in range(n)]
     points=np.array([[center[0]+x, center[1]+y] for x, y in zip(xoffset,yoffset)])
 
     return points
 
-def gen_shape(segments,radius,n):
+def gen_shape(segments,radius,n,random_state=None):
     """Generate uniform distribution along a shape
 
     This function generates a uniform distribution along a set of line segments, using
@@ -78,13 +79,15 @@ def gen_shape(segments,radius,n):
 
     :return: list of points (each point is a tuple)
     """
-
     # Start by picking random segment for each point and random length along segment
     # This isn't exactly right because shorter line segments will have a more dense
-    # distribution than longer ones, but it's good enough. If there's time it can
-    # be rewritten to be sampled from a PDF built on line segment length
+    # distribution than longer ones, but it's good enough. Additionally, it creates
+    # interesting patterns of less-dense and more-dense areas within a cluster. If
+    # there's time it can be rewritten to be sampled from a PDF built on line
+    # segment length
+    shape_rng = np.random.default_rng() if random_state == None else np.random.default_rng(random_state)
     num_segments=len(segments)
-    random_segments=the_rng.integers(low=0,high=num_segments,size=n)
+    random_segments=shape_rng.integers(low=0,high=num_segments,size=n)
     random_lengths=[np.random.uniform(0,1) for x in range(n)]
     # Now, create a random set of points along the segments
     points=np.array([[segments[s][0][0]+l*(segments[s][1][0]-segments[s][0][0]),
@@ -99,7 +102,7 @@ def gen_shape(segments,radius,n):
 
     return points
 
-def gen_dbscan_dataset1():
+def gen_dbscan_dataset1(random_state=None):
     """Generate dataset similar to the first dataset in DBSCAN paper
 
     This function generates a dataset with four circles, each one uniform density
@@ -108,14 +111,14 @@ def gen_dbscan_dataset1():
 
     :return: list of points (each point is a tuple)
     """
-    points=np.concatenate((gen_circle((500,500),315,400),
-                           gen_circle((170,115),80,75),
-                           gen_circle((828,128),85,75),
-                           gen_circle((800,828),80,75)))
+    points=np.concatenate((gen_circle((500,500),315,400,random_state=random_state),
+                           gen_circle((170,115),80,75,random_state=random_state),
+                           gen_circle((828,128),85,75,random_state=random_state),
+                           gen_circle((800,828),80,75,random_state=random_state)))
 
     return points
 
-def gen_dbscan_dataset2():
+def gen_dbscan_dataset2(random_state=None):
     """Generate dataset similar to the second dataset in DBSCAN paper
 
     This function generates a dataset with four non-convex clusters
@@ -148,14 +151,14 @@ def gen_dbscan_dataset2():
                ((564,194),(660,294)) ]
     width4 = 40
 
-    points=np.concatenate((gen_shape(shape1,width1,100),
-                           gen_shape(shape2,width2,200),
-                           gen_shape(shape3,width3,100),
-                           gen_shape(shape4,width4,400)))
+    points=np.concatenate((gen_shape(shape1,width1,100,random_state=random_state),
+                           gen_shape(shape2,width2,200,random_state=random_state),
+                           gen_shape(shape3,width3,100,random_state=random_state),
+                           gen_shape(shape4,width4,400,random_state=random_state)))
 
     return points
 
-def gen_dbscan_dataset3():
+def gen_dbscan_dataset3(random_state=None):
     """Generate dataset similar to the third dataset in DBSCAN paper
 
     This function generates a dataset with two "shape-like" clusters
@@ -175,11 +178,11 @@ def gen_dbscan_dataset3():
     shape2 = [ ((781,254),(890,258)) ]
     width2 = 30
 
-    points=np.concatenate((gen_shape(shape1,width1,300),
-                           gen_shape(shape2,width2,100),
-                           gen_circle((190,600),70,100),
-                           gen_circle((680,700),125,200),
-                           gen_square((500,500),500,70)))
+    points=np.concatenate((gen_shape(shape1,width1,300,random_state=random_state),
+                           gen_shape(shape2,width2,100,random_state=random_state),
+                           gen_circle((190,600),70,100,random_state=random_state),
+                           gen_circle((680,700),125,200,random_state=random_state),
+                           gen_square((500,500),500,70,random_state=random_state)))
 
     return points
 
