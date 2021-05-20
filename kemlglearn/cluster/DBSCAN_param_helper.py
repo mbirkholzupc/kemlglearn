@@ -30,6 +30,9 @@ from gen_dbscan_dataset import gen_dbscan_dataset1, gen_dbscan_dataset2, gen_dbs
                                gen_dbscan_blobs, gen_dbscan_moons
 from DBSCAN import DBSCAN
 
+# Random-number generator
+the_rng = np.random.default_rng()
+
 __author__ = 'birkholz'
 
 # Helper function to plot DBSCAN results based on DBSCAN example in scikit-learn user guide
@@ -80,7 +83,13 @@ if __name__ == '__main__':
     ap=argparse.ArgumentParser()
     ap.add_argument("-f", "--filename", help="path to input data csv file")
     ap.add_argument("-g", "--generate", help="type of data to generate on the fly")
+    ap.add_argument("-c", "--count", help="limit to count samples(file input only)")
+    ap.add_argument("-s", "--seed", help="random seed (only applicable with count)")
     args=vars(ap.parse_args())
+
+    # Set random seed, if specified. Otherwise, will default to rng with unspecified seed.
+    if args['seed']:
+        the_rng=np.random.default_rng(int(args['seed']))
 
     if args['generate']:
         if args['generate'] in datagen_patterns:
@@ -90,6 +99,9 @@ if __name__ == '__main__':
     elif args['filename']:
         df=pd.read_csv(args['filename'],header=None)
         X=df.to_numpy()
+
+        if args['count']:
+            X=the_rng.choice(X,size=int(args['count']),replace=False)
     else:
         raise Exception('Need to specify filename or type of data to generate')
 
