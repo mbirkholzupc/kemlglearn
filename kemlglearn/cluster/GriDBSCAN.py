@@ -15,6 +15,7 @@ GriDBSCAN
 :Created on:
 
 """
+# System/standard library imports
 from sklearn.base import BaseEstimator, ClusterMixin
 from sklearn.metrics.pairwise import euclidean_distances
 from numpy.random import choice
@@ -22,6 +23,11 @@ import numpy as np
 
 import time
 import unittest
+
+# Own imports
+
+# Note: This is our own custom version of DBSCAN, not the sklearn version, but it should be drop-in compatible
+from DBSCAN import DBSCAN
 
 __author__ = 'birkholz'
 
@@ -221,12 +227,30 @@ class GriDBSCAN(BaseEstimator, ClusterMixin):
                 print(str(it.multi_index) + ': ' + str(len(self.partitions[it.multi_index])))
 
         # Step 3: Run DBSCAN on each partition
-        # Note: This would be the highest-priority function to parallelize as it takes O(n/C)^2 time.
+        # Note: This step would be the highest-priority function to parallelize as it takes O(n/C)^2 time.
         #       However, the paper compares only single-CPU/single-thread performance, so that's the
         #       benchmark we'll stick with.
+
+        # Create D-dimensional grids to hold results (labels, core points) of DBSCAN for each partition
+        self.partition_labels = np.empty(self.grid,dtype='object')
+        self.partition_corepts = np.empty(self.grid,dtype='object')
+
         with np.nditer(self.dummygrid,flags=['multi_index']) as it:
             for c in it:
-                pass
+                # Run DBSCAN only on the points in this partition
+                partX=X[self.partitions[it.multi_index]]
+                if len(partX) > 0:
+                    dbscan=DBSCAN(eps=self.eps, min_samples=self.min_samples, metric=self.metric,
+                                  metric_params=self.metric_params, algorithm=self.algorithm,
+                                  leaf_size=self.leaf_size, p=self.p, n_jobs=self.n_jobs).fit(partX)
+                    self.partition_labels[it.multi_index]=dbscan.labels_
+                    self.partition_corepts[it.multi_index]=dbscan.core_sample_indices_
+                else:
+                    self.partition_labels[it.multi_index]=np.array([])
+                    self.partition_corepts[it.multi_index]=np.array([])
+                print('Ran DBSCAN for ' + str(it.multi_index))
+                print(self.partition_labels[it.multi_index])
+                print(self.partition_corepts[it.multi_index])
 
         # Step 4: Merge clusters
 
@@ -310,6 +334,18 @@ class TestGriDBSCAN(unittest.TestCase):
         print(X)
 
         mygridbscan=GriDBSCAN(eps=0.2,min_samples=10,grid=(4,5)).fit(X)
+
+    def test_blobs(self):
+        print('\nRunning test_blobs:')
+        n_samples = 1000
+        n_blobs = 4
+        X, y_true = make_blobs(n_samples=n_samples,
+                               centers=n_blobs,
+                               cluster_std=0.60,
+                               random_state=0)
+        X = X[:, ::-1]
+
+        mygridbscan=GriDBSCAN(eps=0.5,min_samples=4,grid=(6,2)).fit(X)
 
 if __name__ == '__main__':
     import unittest
