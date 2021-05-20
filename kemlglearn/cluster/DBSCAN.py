@@ -20,8 +20,6 @@ from sklearn.base import BaseEstimator, ClusterMixin
 from sklearn.neighbors import NearestNeighbors
 import numpy as np
 
-from sklearn.cluster import DBSCAN as sklDBSCAN
-
 from collections import deque
 import unittest
 
@@ -386,6 +384,9 @@ if __name__ == '__main__':
     from sklearn.datasets import make_blobs, make_moons
     import matplotlib.pyplot as plt
     import pandas as pd
+
+    from sklearn.cluster import DBSCAN as sklDBSCAN
+
 
     from gen_dbscan_dataset import gen_dbscan_dataset1, gen_dbscan_dataset2, gen_dbscan_dataset3, \
                                    gen_dbscan_blobs, gen_dbscan_moons
