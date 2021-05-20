@@ -8,7 +8,7 @@ GriDBSCAN
 
 :Authors: birkholz
 
-:License: BSD 3 clause (due to using API of DBSACN from scikit-learn)
+:License: BSD 3 clause (due to using API of DBSCAN from scikit-learn)
 
 :Version:
 
@@ -133,40 +133,31 @@ class GriDBSCAN(BaseEstimator, ClusterMixin):
         # Step 2: Group points into partitions
         # Create a grid in D-dimensional space with a numpy array that can hold an object per cell.
         # We will put a reference to a regular python list in each cell since it is an efficient
-        # structure to use for a growing list. Each list will hold the indices of all inner/outer
-        # points for that cell. We will maintain two separate grids for inner and outer points and
-        # merge where needed later.
-        self.inner_pts = np.empty(self.grid,dtype='object')
-        self.outer_pts = np.empty(self.grid,dtype='object')
+        # structure to use for a growing list. Each list will hold the indices of all inner and outer
+        # points for that cell. There does not seem to be a need to distinguish between inner/outer
+        # points in the implementiation, just in the proof of correctness.
+        self.partitions = np.empty(self.grid,dtype='object')
 
         # This is kind of dumb, but if we set up an empty object to iterate over, we can iterate over
         # cells easily without having to know the dimensions. The nditer's multi_index will give us the
-        # cell index when needed.
+        # cell index when needed. It also saves us from having to jump through lots of hoops regarding
+        # modifying the thing we're iterating over and allowing references
         self.dummygrid = np.zeros(self.grid)
 
-        # Initialize empty list in each cell
         with np.nditer(self.dummygrid, flags=['multi_index']) as it:
             for c in it:
-                self.inner_pts[it.multi_index]=list()
-                self.outer_pts[it.multi_index]=list()
+                # Start out with an empty list of points in each cell
+                self.partitions[it.multi_index]=list()
 
-        with np.nditer(self.dummygrid, flags=['multi_index']) as it:
-            for c in it:
                 # Calculate grid cell boundaries
-                llimit=mins+gridspacing*it.multi_index
-                ulimit=mins+gridspacing*it.multi_index+gridspacing
-                o_llimit=mins+gridspacing*it.multi_index-self.eps
-                o_ulimit=mins+gridspacing*it.multi_index+gridspacing+self.eps
+                llimit=mins+gridspacing*it.multi_index-self.eps
+                ulimit=mins+gridspacing*it.multi_index+gridspacing+self.eps
                 for i,pt in enumerate(X):
-                    # TODO: Make sure that points that are on the max edge are handled correctly.
-                    #       They should be since they should be counted as an outer point and there
-                    #       are no additional clusters to merge outside of it to the "right"/"up"/etc.
-                    if (llimit <= pt).all() and (pt < ulimit).all():
-                        # This an inner point in this cell
-                        self.inner_pts[it.multi_index].append(i)
-                    elif (o_llimit <= pt).all() and (pt <= o_ulimit).all():
-                        # Otherwise this an outer point in this cell
-                        self.outer_pts[it.multi_index].append(i)
+                    # Going to make the epsilon-boundary inclusive on both upper/lower bounds
+                    # Could potentially result in a few extra CPU cycles here and there, but
+                    # should be minimal impact
+                    if (llimit <= pt).all() and (pt <= ulimit).all():
+                        self.partitions[it.multi_index].append(i)
 
         """
         # TODO: See if I should revive this code to speed things up. The other way is C*O(n), but
@@ -223,21 +214,19 @@ class GriDBSCAN(BaseEstimator, ClusterMixin):
             if idx==2:
                 break
         '''
-        print('inner')
-        #print(self.inner_pts)
+        print('partitions')
+        print(self.partitions)
         with np.nditer(self.dummygrid,flags=['multi_index']) as it:
             for c in it:
-                print(str(it.multi_index) + ': ' + str(len(self.inner_pts[it.multi_index])))
-
-        print('outer')
-        #print(self.outer_pts)
-        with np.nditer(self.dummygrid,flags=['multi_index']) as it:
-            for c in it:
-                print(str(it.multi_index) + ': ' + str(len(self.outer_pts[it.multi_index])))
-
+                print(str(it.multi_index) + ': ' + str(len(self.partitions[it.multi_index])))
 
         # Step 3: Run DBSCAN on each partition
-
+        # Note: This would be the highest-priority function to parallelize as it takes O(n/C)^2 time.
+        #       However, the paper compares only single-CPU/single-thread performance, so that's the
+        #       benchmark we'll stick with.
+        with np.nditer(self.dummygrid,flags=['multi_index']) as it:
+            for c in it:
+                pass
 
         # Step 4: Merge clusters
 
@@ -311,18 +300,13 @@ class TestGriDBSCAN(unittest.TestCase):
 
     def test_innerouter(self):
         print('\nRunning test_innerouter:')
-        n_samples = 10000
-        n_blobs = 4
-        X, y_true = make_blobs(n_samples=n_samples,
-                               centers=n_blobs,
-                               cluster_std=0.60,
-                               random_state=0)
         X = np.array( [ [  8, 8],
                         [2.1, 4],
                         [ -4, 3],
                         [  0, 0],
                         [  3,-2],
-                        [  4, 1] ] )
+                        [  4, 1],
+                        [  0, 4.1] ] )
         print(X)
 
         mygridbscan=GriDBSCAN(eps=0.2,min_samples=10,grid=(4,5)).fit(X)
