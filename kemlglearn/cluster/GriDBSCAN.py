@@ -27,9 +27,55 @@ import unittest
 # Own imports
 
 # Note: This is our own custom version of DBSCAN, not the sklearn version, but it should be drop-in compatible
-from DBSCAN import DBSCAN
+from DBSCAN import DBSCAN, NOISE
 
 __author__ = 'birkholz'
+
+# Reserve space for 65535 clusters per partition (unlikely we'd ever get that high)
+# Keep in mind "noise" is encoded as -1 (hence why 65535, not 65536)
+# Also, remember this isn't a uint32
+PART_MULT=(1<<16)
+PART_MASK=(0xffff0000)
+CLST_MASK=(0xffff)
+
+def to_clid(partition,cluster):
+    """
+    Generate a unique cluster ID based on partition number and cluster within partition
+
+    :param partition: a number representing the partition (flattened, not a tuple)
+    :param cluster: an int representing the cluster within the partition
+
+    :return: a unique cluster ID
+    """
+    # Add one to move noise from -1 to 0
+    clid = int((partition*PART_MULT)+cluster+1)
+    return clid
+
+def is_noise(clid):
+    """
+    Check if a cluster ID is noise
+
+    :param clid: an int representing the cluster ID
+
+    :return: True if noise, False if "real" cluster
+    """
+    return True if ((clid & CLST_MASK)==0) else False
+
+def merge_clusters(cl_eq_list, cx, cy):
+    # Note: Different from paper but I think paper has an error since the merge they propose
+    #       fails if gx > gy
+
+    # Should never be called with noise because noise can't be a core point
+    assert(cx!=0)
+    assert(cy!=0)
+
+    gx=cl_eq_list[cx]
+    gy=cl_eq_list[cy]
+    gm=min(gx,gy)
+    print(f'{gx} {gy} {gm}')
+    for k in cl_eq_list:
+        if cl_eq_list[k] == gx or cl_eq_list[k] == gy:
+            cl_eq_list[k] = gm
 
 class GriDBSCAN(BaseEstimator, ClusterMixin):
     """GriDBSCAN Implementation
@@ -65,6 +111,15 @@ class GriDBSCAN(BaseEstimator, ClusterMixin):
         self.p=p
         self.n_jobs=n_jobs
         self.grid=grid
+        if self.grid==None:
+            # Behave like "normal" DBSCAN and don't divide into grid, i.e., just a single partition
+            self.grid=[1]
+        self.grid=np.array(self.grid)
+
+        # Calculate the grid base we can use to flatten/blow up the grid
+        # If dims are (w, x, y, z), then it is like this: (x*y*z, y*z, z, 1)
+        cumprod=[np.prod(self.grid[0:x+1]) for x in range(len(self.grid))]
+        self.gridbase=np.prod(self.grid)/cumprod
 
     def fit(self, X, y=None, sample_weight=None):
         """
@@ -79,13 +134,6 @@ class GriDBSCAN(BaseEstimator, ClusterMixin):
         print('Would be doing GriDBSCAN...')
 
         # Step 1: Build grid
-        if self.grid==None:
-            # Behave like "normal" DBSCAN and don't divide into grid, i.e., one square in all dims
-            # Need to defer this step to the "fit" call since we don't have the data dimensions yet
-            # in the constructor
-            self.grid=[1 for x in range(len(X[0]))]
-        self.grid=np.array(self.grid)
-
         # Note: Could make this O(n) instead of #attributes*O(n), but supposedly O(n) time is fairly
         #       negligible compared to the O(n^2) the DBCAN portion takes
         #       My first attempt at only traversing the array once was foiled by python's implementation
@@ -145,9 +193,10 @@ class GriDBSCAN(BaseEstimator, ClusterMixin):
         self.partitions = np.empty(self.grid,dtype='object')
 
         # This is kind of dumb, but if we set up an empty object to iterate over, we can iterate over
-        # cells easily without having to know the dimensions. The nditer's multi_index will give us the
-        # cell index when needed. It also saves us from having to jump through lots of hoops regarding
-        # modifying the thing we're iterating over and allowing references
+        # cells easily without having to know the dimensions explicitly (just make it the same shape as
+        # the grid). Even though we're ultimately going to have to flatten the data, the multi_index is
+        # useful to use python's efficient vectorized math functions. It also saves us from having to jump
+        # through lots of hoops regarding modifying the thing we're iterating over and allowing references
         self.dummygrid = np.zeros(self.grid)
 
         with np.nditer(self.dummygrid, flags=['multi_index']) as it:
@@ -253,9 +302,131 @@ class GriDBSCAN(BaseEstimator, ClusterMixin):
                 print(self.partition_corepts[it.multi_index])
 
         # Step 4: Merge clusters
+        print('Merge step')
 
-        
+        # Create cluster-equivalence list
+        # TODO: Maybe this could be built up during DBSCAN iterations?
+        cl_eq_list = {}
+        with np.nditer(self.dummygrid,flags=['multi_index']) as it:
+            for c in it:
+                clusters_in_partition = np.unique(self.partition_labels[it.multi_index])
+                flatpartition = self.to_flat(it.multi_index)
+                for cip in clusters_in_partition:
+                    clid = to_clid(flatpartition, cip)
+                    if not is_noise(clid):
+                        # Key is cluster ID, value is group ID. They start off the same.
+                        cl_eq_list[clid]=clid
 
+        print(cl_eq_list)
+
+        # Create lists to track Cluster-ID, Core Flag and Potential Equivalence List
+        cid         = np.zeros(len(X),int) # Group 0 is noise, remember
+        core_flag   = np.full(len(X), False)
+        pot_eq_list = np.empty(len(X),object)
+        pot_eq_list[...]=[[] for _ in range(len(pot_eq_list))]
+
+        with np.nditer(self.dummygrid,flags=['multi_index']) as it:
+            for c in it:
+                print('partition separator ' + str(it.multi_index))
+                print(self.partitions[it.multi_index])
+                print(self.partition_labels[it.multi_index])
+                print(self.partition_corepts[it.multi_index])
+                flat=self.to_flat(it.multi_index)
+                gridcell=self.to_grid(flat)
+                print(flat)
+                print(gridcell)
+
+                # Convert to set for fast lookup
+                cur_corepts = set(self.partition_corepts[it.multi_index])
+                # Save reference to labels for convenience
+                cur_labels = self.partition_labels[it.multi_index]
+
+                # Check each point and make sure we can go back from index in cluster to index
+                # in full dataset
+                for pt in self.partition_corepts[it.multi_index]:
+                    print('local core: ' + str(pt) + '    global: ' + str(self.partitions[it.multi_index][pt]))
+
+                for i,pt in enumerate(self.partition_labels[it.multi_index]):
+                    print('partition: ' + str(i) + '(' + str(pt) + ')\tglobal: ' + str(self.partitions[it.multi_index][i]))
+
+                # For each point in this cluster, get it indexed in the Cl-ID, Core Flag and Potential
+                # Equivalence List and try to merge equivalent clusters
+                for pt,lbl in enumerate(self.partition_labels[it.multi_index]):
+                    # Look up index of this point in the full database and calculate Cluster ID
+                    glidx=self.partitions[it.multi_index][pt]
+                    clid=to_clid(flat,lbl)
+
+                    if cur_labels[pt] != NOISE:
+                        if pt not in cur_corepts:
+                            if core_flag[glidx]:
+                                merge_clusters(cl_eq_list, cid[glidx], clid)
+                            else:
+                                # Add to potential equivalence list
+                                clid=to_clid(flat,lbl)
+                                print('adding to pel: ' + str(clid))
+                                pot_eq_list[glidx].append(clid)
+                        else:
+                            if core_flag[glidx]:
+                                # If we know this is a core point already, merge clusters
+                                merge_clusters(cl_eq_list, cid[glidx], clid)
+                                if len(pot_eq_list[glidx]) != 0:
+                                    print("WHATWHAT!")
+                            else:
+                                # Mark this point as a core point and set current cluster if it hasn't been set
+                                core_flag[glidx]=True
+                                cid[glidx] = clid
+                                # Merge clusters in potential equivalence list
+                                if len(pot_eq_list[glidx]) > 0:
+                                    print(f'found non-empty potential equivalent list for {clid}. merging it...')
+                                    for p in pot_eq_list[glidx]:
+                                        print('p: ' + str(p))
+                                        print('before')
+                                        print(cl_eq_list)
+                                        print(f'merging {cid[glidx]} and {p}...')
+                                        merge_clusters(cl_eq_list, cid[glidx], p)
+                                        print('after')
+                                        print(cl_eq_list)
+                                    # Now clear out list
+                                    pot_eq_list[glidx] = []
+
+
+                # print out the table of point/clusted/core flag/pot eq list
+                for i in range(len(X)):
+                    print(f'{i}: {cid[i]} {core_flag[i]} {pot_eq_list[i]}')
+
+                if self.to_flat(it.multi_index) == 1:
+                    #break
+                    pass
+
+        print('cl_eq_list')
+        print(cl_eq_list)
+        print('pre clusters')
+        print(cid)
+        # Now, if there are any non-empty potential equivalent lists, assign those points to a cluster
+        for i,p in enumerate(pot_eq_list):
+            if len(p) > 0:
+                cid[i] = p[0]
+        print('post clusters')
+        print(cid)
+
+        # Now we have everything we need, so let's set up return values
+        self.labels_ = []
+        self.core_sample_indices_ = []
+        for i, cluster_core in enumerate(zip(cid,core_flag)):
+            if cluster_core[0] == 0:
+                self.labels_.append(NOISE)  # Translate noise from 0 to -1
+            else:
+                # Use the cluster group ID as the final label
+                # TODO: This
+                #self.labels_.append(cluster_core[0])
+                self.labels_.append(cl_eq_list[cluster_core[0]])
+            if cluster_core[1]:
+                self.core_sample_indices_.append(i)
+        print('cl_eq_list')
+        print(cl_eq_list)
+
+        self.labels_=np.array(self.labels_)
+        self.core_sample_indices_=np.array(self.core_sample_indices_)
 
         return self
 
@@ -269,6 +440,126 @@ class GriDBSCAN(BaseEstimator, ClusterMixin):
         """
         self.labels_ = self.fit(X,sample_weight=None)
         return self.labels_
+
+    def to_flat(self,cell):
+        return np.dot(self.gridbase,cell)
+
+    def to_grid(self,flat):
+        buildcell=[]
+        remaining=flat
+        for i,x in enumerate(self.gridbase):
+            buildcell.append(int(remaining/self.gridbase[i]))
+            remaining = remaining % self.gridbase[i]
+        return tuple(buildcell)
+
+def dbscan_equivalent_results(labels1, corepts1, labels2, corepts2):
+    # This is not the absolute most efficient implementation, but it
+    # doesn't have to be since it's just a unit test.
+
+    # Confirm results are identical. They should have all the same core points, but
+    # it is possible for a border point to be grouped with a different cluster if it's
+    # close enough to two different clusters.
+
+    # Noise must be identical
+    noise1=set(np.where(labels1==NOISE)[0])
+    noise2=set(np.where(labels2==NOISE)[0])
+
+    if noise1 != noise2:
+        print('noise mismatch!')
+        return False
+
+    # Core samples must be identical (although they might belong to different clusters)
+    if set(corepts1) != set(corepts2):
+        print('core sample mismatch!')
+        return False
+
+    # Since the clusters may have different cluster IDs, we'll have to kind of guess which
+    # clusters match.
+    uniquelabels1 = np.unique(labels1)
+    uniquelabels2 = np.unique(labels2)
+
+    clusterdifferences = []
+
+    for lbl1 in uniquelabels1:
+        if lbl1 == -1:
+            # Already checked noise, so continue with next cluster
+            continue
+        # Try to find most similar cluster
+        set1=set(np.where(labels1==lbl1)[0])
+        # Format of tuple: how many different samples there are, the list of different samples
+        bestcluster = (None, None)
+        for lbl2 in uniquelabels2:
+            if lbl2 == -1:
+                continue
+            set2 = set(np.where(labels2==lbl2)[0])
+            cluster_difference = set1 ^ set2
+            mag_cluster_difference = len(cluster_difference)
+            if bestcluster == (None,None):
+                bestcluster = (mag_cluster_difference, cluster_difference)
+            elif mag_cluster_difference < bestcluster[0]:
+                bestcluster = (mag_cluster_difference, cluster_difference)
+
+            # If they're identical, we can skip to the next iteration directly
+            if mag_cluster_difference == 0:
+                break
+
+        if bestcluster[0] != None and bestcluster[0] > 0:
+            clusterdifferences.append(bestcluster)
+
+    if len(clusterdifferences) != 0:
+        for difference in clusterdifferences:
+            for pt in difference[1]:
+                if pt in set(corepts1):
+                    # If any core points are different, we're in trouble. Border
+                    # points can be in different clusters though.
+                    return False
+
+    return True
+
+# Helper function to plot DBSCAN results based on DBSCAN example in scikit-learn user guide
+# If data has more than two dimensions, the first two will be used
+def plot_dbscan_results(x, labels, core_sample_indices):
+    core_samples_mask=np.zeros_like(labels, dtype=bool)
+    core_samples_mask[core_sample_indices] = True
+    n_clusters_=len(set(labels))-(1 if -1 in labels else 0)
+    n_noise_ = list(labels).count(-1)
+
+    unique_labels = set(labels)
+    colors = [plt.cm.Spectral(each) for each in np.linspace(0, 1, len(unique_labels))]
+
+    for k, col in zip(unique_labels, colors):
+        if k == -1:
+            col = [0, 0, 0, 1] # Black for noise
+
+        class_member_mask = (labels == k)
+
+        if k == 65539:
+            xy = x[class_member_mask]
+            plt.plot(xy[:, 0], xy[:, 1], 'o', markerfacecolor=tuple(col),
+                markeredgecolor='k', markersize=14)
+
+            xy = x[class_member_mask & core_samples_mask]
+            plt.plot(xy[:, 0], xy[:, 1], 'o', markerfacecolor=tuple(col),
+                markeredgecolor='k', markersize=4)
+        else:
+            xy = x[class_member_mask]
+            plt.plot(xy[:, 0], xy[:, 1], 'o', markerfacecolor=tuple(col),
+                markeredgecolor='k', markersize=6)
+
+        '''
+        xy = x[class_member_mask & core_samples_mask]
+        plt.plot(xy[:, 0], xy[:, 1], 'o', markerfacecolor=tuple(col),
+            markeredgecolor='k', markersize=14)
+
+        xy = x[class_member_mask & ~core_samples_mask]
+        plt.plot(xy[:, 0], xy[:, 1], 'o', markerfacecolor=tuple(col),
+            markeredgecolor='k', markersize=6)
+        '''
+
+
+    # Show clusters (and noise)
+    plt.title(f'Estimated number of clusters: {n_clusters_}')
+    plt.show()
 
 class TestGriDBSCAN(unittest.TestCase):
     def test_one(self):
@@ -342,10 +633,70 @@ class TestGriDBSCAN(unittest.TestCase):
         X, y_true = make_blobs(n_samples=n_samples,
                                centers=n_blobs,
                                cluster_std=0.60,
-                               random_state=0)
+                               random_state=2)
         X = X[:, ::-1]
 
+        # Show points
+        plt.figure(1)
+        plt.scatter(X[:,0], X[:,1])
+        plt.show()
+
         mygridbscan=GriDBSCAN(eps=0.5,min_samples=4,grid=(6,2)).fit(X)
+
+        print('GriDBSCAN')
+        print(mygridbscan.labels_)
+        print(mygridbscan.core_sample_indices_)
+
+        print('DBSCAN')
+        refdbscan=sklDBSCAN(eps=0.5,min_samples=4).fit(X)
+        print(refdbscan.labels_)
+        print(refdbscan.core_sample_indices_)
+
+class TestGriDBSCANAuto(unittest.TestCase):
+    def test_auto1(self):
+        # 100 iterations generally seems to be enough to get an ambiguous border point
+        for rs in range(1000):
+            n_samples = 1000
+            n_blobs = 4
+            X, y_true = make_blobs(n_samples=n_samples,
+                                   centers=n_blobs,
+                                   cluster_std=0.60,
+                                   random_state=rs)
+            X = X[:, ::-1]
+
+            '''
+            # Shuffle the data to force (possibly) some border points to be different
+            shuffle, unshuffle = gen_shuffle_unshuffle_idx(X)
+            shuffleX = X[shuffle]
+            mydbscan=DBSCAN(eps=43,min_samples=4).fit(shuffleX)
+            # Unshuffle the results so they can be compared with original indices
+            unshuffled_labels=mydbscan.labels_[unshuffle]
+            unshuffled_corepts=np.array([shuffle[x] for x in mydbscan.core_sample_indices_])
+            mygridbscan=GriDBSCAN(eps=0.5,min_samples=4,grid=(3,4)).fit(shuffleX)
+            '''
+            mygridbscan=GriDBSCAN(eps=0.5,min_samples=4,grid=(3,4)).fit(X)
+
+            refdbscan=sklDBSCAN(eps=0.5,min_samples=4).fit(X)
+            print(mygridbscan.core_sample_indices_)
+            print(refdbscan.core_sample_indices_)
+            print(mygridbscan.labels_)
+            print(refdbscan.labels_)
+
+            uniquelabels1 = np.unique(mygridbscan.labels_)
+            uniquelabels2 = np.unique(refdbscan.labels_)
+            print(uniquelabels1)
+            print(uniquelabels2)
+
+            #plot_dbscan_results(X, mygridbscan.labels_, mygridbscan.core_sample_indices_)
+
+            #plot_dbscan_results(X, refdbscan.labels_, refdbscan.core_sample_indices_)
+
+            print(f'checking results for seed: {rs}')
+            self.assertEqual(True,dbscan_equivalent_results(
+                             #unshuffled_labels, unshuffled_corepts,
+                             mygridbscan.labels_, mygridbscan.core_sample_indices_,
+                             refdbscan.labels_, refdbscan.core_sample_indices_))
+
 
 if __name__ == '__main__':
     import unittest
@@ -356,6 +707,8 @@ if __name__ == '__main__':
     from sklearn.metrics import pairwise
     import matplotlib.pyplot as plt
     from numpy.random import normal
+
+    from sklearn.cluster import DBSCAN as sklDBSCAN
 
     # Set up logging subsystem. Level should be one of: CRITICAL, ERROR, WARNING, INFO, DEBUG, NOTSET
     logging.basicConfig()
