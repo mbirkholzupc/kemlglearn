@@ -22,6 +22,7 @@ import numpy as np
 
 from collections import deque
 import unittest
+import time
 
 __author__ = 'birkholz'
 
@@ -70,11 +71,17 @@ class DBSCAN(BaseEstimator, ClusterMixin):
         :param sample_weight: unused (future: can make a single point count as more than 1)
         :return: DBSCAN object after clustering
         """
-
         # Set up neighbor query object based on requested algorithm
         # Refer to https://scikit-learn.org/stable/modules/neighbors.html#unsupervised-neighbors
-        nn=NearestNeighbors(radius=self.eps)
+        nn=NearestNeighbors(radius=self.eps,algorithm=self.algorithm,
+                            leaf_size=self.leaf_size,metric=self.metric,
+                            p=self.p,metric_params=self.metric_params,
+                            n_jobs=self.n_jobs)
         nn.fit(X)
+        # Looking up the nearest neighbors on a point-by-point basis is very slow, so let's try
+        # getting the full list here despite higher memory usage
+        neighborlist = nn.radius_neighbors(X)
+
         # Default each label to 0 (NO_CLUSTER)
         self.labels_=np.zeros((len(X),), dtype=int)
         cur_cluster_label = NO_CLUSTER
@@ -88,9 +95,8 @@ class DBSCAN(BaseEstimator, ClusterMixin):
             if self.labels_[i] != NO_CLUSTER:
                 continue
 
-            # neighborlist[0][0] contains distances, neighborlist[1][0] contains indices
-            neighborlist = nn.radius_neighbors([pt])
-            if len(neighborlist[0][0]) < self.min_samples:
+            # neighborlist[0][x] contains distances, neighborlist[1][x] contains indices
+            if len(neighborlist[0][i]) < self.min_samples:
                 self.labels_[i] = NOISE
                 continue
 
@@ -101,7 +107,7 @@ class DBSCAN(BaseEstimator, ClusterMixin):
             # This is a core point
             self.core_sample_indices_.append(i)
 
-            for newseed in neighborlist[1][0]:
+            for newseed in neighborlist[1][i]:
                 # Don't append current point
                 if newseed != i:
                     seeds.append(newseed)
@@ -112,17 +118,16 @@ class DBSCAN(BaseEstimator, ClusterMixin):
                     self.labels_[q] = cur_cluster_label
                 if self.labels_[q] != NO_CLUSTER:
                     continue
-                neighborlist = nn.radius_neighbors([X[q]])
                 self.labels_[q] = cur_cluster_label
-                if len(neighborlist[0][0]) < self.min_samples:
+                if len(neighborlist[0][q]) < self.min_samples:
                     continue
 
                 # If we get here, this is a core point
                 self.core_sample_indices_.append(q)
 
                 # Add new reachable points to seed list if we haven't checked them out yet
-                for n in neighborlist[1][0]:
-                    if self.labels_[n] == NO_CLUSTER or self.labels_[n] == NOISE:
+                for n in neighborlist[1][q]:
+                    if self.labels_[n] == NOISE or self.labels_[n] == NO_CLUSTER:
                         seeds.append(n)
 
         return self
@@ -319,11 +324,39 @@ class TestDBSCAN(unittest.TestCase):
 
         refdbscan=sklDBSCAN(eps=1.66,min_samples=8).fit(X)
 
-        print(np.unique(mydbscan.labels_))
-        print(np.unique(refdbscan.labels_))
         self.assertEqual(True,dbscan_equivalent_results(
                          unshuffled_labels, unshuffled_corepts,
                          refdbscan.labels_, refdbscan.core_sample_indices_))
+
+    def test_timing(self):
+        our_timing = RunningStat()
+        their_timing = RunningStat()
+
+        for rs in range(100):
+            X=gen_dbscan_dataset1(random_state=rs)
+
+            # Shuffle the data since that greatly affects runtime. If the data is not shuffled,
+            # there is about two orders of magnitude difference in the timing result.
+            # We have already established that shuffled/unshuffled data results in equivalent
+            # clustering, so we can test the data in the same order for both implementations.
+            shuffle, unshuffle = gen_shuffle_unshuffle_idx(X)
+            shuffleX = X[shuffle]
+            start_time=time.time()
+            mydbscan=DBSCAN(eps=43,min_samples=4).fit(X)
+            end_time=time.time()
+            our_timing.push(end_time-start_time)
+
+            start_time=time.time()
+            refdbscan=sklDBSCAN(eps=43,min_samples=4).fit(shuffleX)
+            end_time=time.time()
+            their_timing.push(end_time-start_time)
+
+            #self.assertEqual(True,dbscan_equivalent_results(
+            #                 mydbscan.labels_, mydbscan.core_sample_indices_,
+            #                 refdbscan.labels_, refdbscan.core_sample_indices_))
+        print('Timing results:')
+        print(f'Ours:   {our_timing.mean()} ({our_timing.standard_deviation()})')
+        print(f'Theirs: {their_timing.mean()} ({their_timing.standard_deviation()})')
 
 class TestDBSCANInteractive(unittest.TestCase):
     def test_one(self):
@@ -380,6 +413,7 @@ class TestDBSCANInteractive(unittest.TestCase):
 if __name__ == '__main__':
     import unittest
     import logging
+    import time
 
     from sklearn.datasets import make_blobs, make_moons
     import matplotlib.pyplot as plt
@@ -390,6 +424,8 @@ if __name__ == '__main__':
 
     from gen_dbscan_dataset import gen_dbscan_dataset1, gen_dbscan_dataset2, gen_dbscan_dataset3, \
                                    gen_dbscan_blobs, gen_dbscan_moons
+
+    from RunningStat import RunningStat
 
     # Set up logging subsystem. Level should be one of: CRITICAL, ERROR, WARNING, INFO, DEBUG, NOTSET
     logging.basicConfig()
