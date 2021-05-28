@@ -27,7 +27,7 @@ import unittest
 # Own imports
 
 # Note: This is our own custom version of DBSCAN, not the sklearn version, but it should be drop-in compatible
-from DBSCAN import DBSCAN, NOISE
+from kemlglearn.cluster.DBSCAN import DBSCAN, NOISE
 
 __author__ = 'birkholz'
 
