@@ -54,11 +54,15 @@ def plot_dbscan_results(x, labels, core_sample_indices):
 
         xy = x[class_member_mask & core_samples_mask]
         plt.plot(xy[:, 0], xy[:, 1], 'o', markerfacecolor=tuple(col),
-            markeredgecolor='k', markersize=14)
+                 markeredgecolor=tuple(col), markersize=2)
+        #plt.plot(xy[:, 0], xy[:, 1], 'o', markerfacecolor=tuple(col),
+            #markeredgecolor='k', markersize=14)
 
         xy = x[class_member_mask & ~core_samples_mask]
         plt.plot(xy[:, 0], xy[:, 1], 'o', markerfacecolor=tuple(col),
-            markeredgecolor='k', markersize=6)
+                 markeredgecolor=tuple(col), markersize=2)
+        #xy = x[class_member_mask & ~core_samples_mask]
+            #markeredgecolor='k', markersize=6)
 
     # Show clusters (and noise)
     plt.title(f'Estimated number of clusters: {n_clusters_}')
@@ -114,6 +118,8 @@ if __name__ == '__main__':
     k=X.shape[1]*2
     # Or, dims+1 is another suggested choice
     #k=X.shape[1]+1
+    # Default from Gan and Tao paper for PAMAP2 dataset
+    #k=100
 
     stop=False
     while (not stop):
