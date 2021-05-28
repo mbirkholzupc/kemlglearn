@@ -72,7 +72,6 @@ def merge_clusters(cl_eq_list, cx, cy):
     gx=cl_eq_list[cx]
     gy=cl_eq_list[cy]
     gm=min(gx,gy)
-    print(f'{gx} {gy} {gm}')
     for k in cl_eq_list:
         if cl_eq_list[k] == gx or cl_eq_list[k] == gy:
             cl_eq_list[k] = gm
@@ -98,8 +97,6 @@ class GriDBSCAN(BaseEstimator, ClusterMixin):
     core_sample_indices_: ndarray of shape(n_core_samples,)
       Indices of core samples (TODO: decide if this is sufficient or if it needs to tell us core/border/noise for each point for efficiency)
     """
-    #TODO: Decide if we should pass through all parameters to DBSCAN or only support a reduced set
-
     def __init__(self, eps=0.5, min_samples=5, metric='euclidean', metric_params=None,
                  algorithm='auto', leaf_size=30, p=None, n_jobs=None, grid=None):
         self.eps=eps
@@ -129,10 +126,7 @@ class GriDBSCAN(BaseEstimator, ClusterMixin):
         :param sample_weight: unused (future: can make a single point count as more than 1)
         :return: DBSCAN object after clustering
         """
-
         # Do GriDBSCAN here
-        print('Would be doing GriDBSCAN...')
-
         # Step 1: Build grid
         # Note: Could make this O(n) instead of #attributes*O(n), but supposedly O(n) time is fairly
         #       negligible compared to the O(n^2) the DBCAN portion takes
@@ -168,17 +162,13 @@ class GriDBSCAN(BaseEstimator, ClusterMixin):
         for i in range(len(X[0])):
             mins.append(min(X[:,i]))
             maxs.append(max(X[:,i]))
-        print('mins: ' + str(mins))
-        print('maxs: ' + str(maxs))
         mins=np.array(mins)
         maxs=np.array(maxs)
 
         # Calculate and validate grid spacings
         dimrange=[themax-themin for themax, themin in zip(maxs,mins)]
         dimrange=np.array(dimrange)
-        print(dimrange)
         gridspacing=dimrange/self.grid
-        print(gridspacing)
 
         if any(space < 2*self.eps for space in gridspacing):
             # TODO: Tell them which dimension and specific numbers so they can fix it
@@ -269,11 +259,6 @@ class GriDBSCAN(BaseEstimator, ClusterMixin):
             if idx==2:
                 break
         '''
-        print('partitions')
-        print(self.partitions)
-        with np.nditer(self.dummygrid,flags=['multi_index']) as it:
-            for c in it:
-                print(str(it.multi_index) + ': ' + str(len(self.partitions[it.multi_index])))
 
         # Step 3: Run DBSCAN on each partition
         # Note: This step would be the highest-priority function to parallelize as it takes O(n/C)^2 time.
@@ -297,15 +282,11 @@ class GriDBSCAN(BaseEstimator, ClusterMixin):
                 else:
                     self.partition_labels[it.multi_index]=np.array([])
                     self.partition_corepts[it.multi_index]=np.array([])
-                print('Ran DBSCAN for ' + str(it.multi_index))
-                print(self.partition_labels[it.multi_index])
-                print(self.partition_corepts[it.multi_index])
 
         # Step 4: Merge clusters
-        print('Merge step')
-
         # Create cluster-equivalence list
-        # TODO: Maybe this could be built up during DBSCAN iterations?
+        # TODO: Maybe this could be built up during DBSCAN iterations? Doesn't matter much since this is so
+        #       short compared to running DBSCAN
         cl_eq_list = {}
         with np.nditer(self.dummygrid,flags=['multi_index']) as it:
             for c in it:
@@ -317,8 +298,6 @@ class GriDBSCAN(BaseEstimator, ClusterMixin):
                         # Key is cluster ID, value is group ID. They start off the same.
                         cl_eq_list[clid]=clid
 
-        print(cl_eq_list)
-
         # Create lists to track Cluster-ID, Core Flag and Potential Equivalence List
         cid         = np.zeros(len(X),int) # Group 0 is noise, remember
         core_flag   = np.full(len(X), False)
@@ -327,27 +306,13 @@ class GriDBSCAN(BaseEstimator, ClusterMixin):
 
         with np.nditer(self.dummygrid,flags=['multi_index']) as it:
             for c in it:
-                print('partition separator ' + str(it.multi_index))
-                print(self.partitions[it.multi_index])
-                print(self.partition_labels[it.multi_index])
-                print(self.partition_corepts[it.multi_index])
                 flat=self.to_flat(it.multi_index)
                 gridcell=self.to_grid(flat)
-                print(flat)
-                print(gridcell)
 
                 # Convert to set for fast lookup
                 cur_corepts = set(self.partition_corepts[it.multi_index])
                 # Save reference to labels for convenience
                 cur_labels = self.partition_labels[it.multi_index]
-
-                # Check each point and make sure we can go back from index in cluster to index
-                # in full dataset
-                for pt in self.partition_corepts[it.multi_index]:
-                    print('local core: ' + str(pt) + '    global: ' + str(self.partitions[it.multi_index][pt]))
-
-                for i,pt in enumerate(self.partition_labels[it.multi_index]):
-                    print('partition: ' + str(i) + '(' + str(pt) + ')\tglobal: ' + str(self.partitions[it.multi_index][i]))
 
                 # For each point in this cluster, get it indexed in the Cl-ID, Core Flag and Potential
                 # Equivalence List and try to merge equivalent clusters
@@ -363,7 +328,6 @@ class GriDBSCAN(BaseEstimator, ClusterMixin):
                             else:
                                 # Add to potential equivalence list
                                 clid=to_clid(flat,lbl)
-                                print('adding to pel: ' + str(clid))
                                 pot_eq_list[glidx].append(clid)
                         else:
                             if core_flag[glidx]:
@@ -377,37 +341,15 @@ class GriDBSCAN(BaseEstimator, ClusterMixin):
                                 cid[glidx] = clid
                                 # Merge clusters in potential equivalence list
                                 if len(pot_eq_list[glidx]) > 0:
-                                    print(f'found non-empty potential equivalent list for {clid}. merging it...')
                                     for p in pot_eq_list[glidx]:
-                                        print('p: ' + str(p))
-                                        print('before')
-                                        print(cl_eq_list)
-                                        print(f'merging {cid[glidx]} and {p}...')
                                         merge_clusters(cl_eq_list, cid[glidx], p)
-                                        print('after')
-                                        print(cl_eq_list)
                                     # Now clear out list
                                     pot_eq_list[glidx] = []
 
-
-                # print out the table of point/clusted/core flag/pot eq list
-                for i in range(len(X)):
-                    print(f'{i}: {cid[i]} {core_flag[i]} {pot_eq_list[i]}')
-
-                if self.to_flat(it.multi_index) == 1:
-                    #break
-                    pass
-
-        print('cl_eq_list')
-        print(cl_eq_list)
-        print('pre clusters')
-        print(cid)
         # Now, if there are any non-empty potential equivalent lists, assign those points to a cluster
         for i,p in enumerate(pot_eq_list):
             if len(p) > 0:
                 cid[i] = p[0]
-        print('post clusters')
-        print(cid)
 
         # Now we have everything we need, so let's set up return values
         self.labels_ = []
@@ -422,8 +364,6 @@ class GriDBSCAN(BaseEstimator, ClusterMixin):
                 self.labels_.append(cl_eq_list[cluster_core[0]])
             if cluster_core[1]:
                 self.core_sample_indices_.append(i)
-        print('cl_eq_list')
-        print(cl_eq_list)
 
         self.labels_=np.array(self.labels_)
         self.core_sample_indices_=np.array(self.core_sample_indices_)
@@ -452,267 +392,3 @@ class GriDBSCAN(BaseEstimator, ClusterMixin):
             remaining = remaining % self.gridbase[i]
         return tuple(buildcell)
 
-def dbscan_equivalent_results(labels1, corepts1, labels2, corepts2):
-    # This is not the absolute most efficient implementation, but it
-    # doesn't have to be since it's just a unit test.
-
-    # Confirm results are identical. They should have all the same core points, but
-    # it is possible for a border point to be grouped with a different cluster if it's
-    # close enough to two different clusters.
-
-    # Noise must be identical
-    noise1=set(np.where(labels1==NOISE)[0])
-    noise2=set(np.where(labels2==NOISE)[0])
-
-    if noise1 != noise2:
-        print('noise mismatch!')
-        return False
-
-    # Core samples must be identical (although they might belong to different clusters)
-    if set(corepts1) != set(corepts2):
-        print('core sample mismatch!')
-        return False
-
-    # Since the clusters may have different cluster IDs, we'll have to kind of guess which
-    # clusters match.
-    uniquelabels1 = np.unique(labels1)
-    uniquelabels2 = np.unique(labels2)
-
-    clusterdifferences = []
-
-    for lbl1 in uniquelabels1:
-        if lbl1 == -1:
-            # Already checked noise, so continue with next cluster
-            continue
-        # Try to find most similar cluster
-        set1=set(np.where(labels1==lbl1)[0])
-        # Format of tuple: how many different samples there are, the list of different samples
-        bestcluster = (None, None)
-        for lbl2 in uniquelabels2:
-            if lbl2 == -1:
-                continue
-            set2 = set(np.where(labels2==lbl2)[0])
-            cluster_difference = set1 ^ set2
-            mag_cluster_difference = len(cluster_difference)
-            if bestcluster == (None,None):
-                bestcluster = (mag_cluster_difference, cluster_difference)
-            elif mag_cluster_difference < bestcluster[0]:
-                bestcluster = (mag_cluster_difference, cluster_difference)
-
-            # If they're identical, we can skip to the next iteration directly
-            if mag_cluster_difference == 0:
-                break
-
-        if bestcluster[0] != None and bestcluster[0] > 0:
-            clusterdifferences.append(bestcluster)
-
-    if len(clusterdifferences) != 0:
-        for difference in clusterdifferences:
-            for pt in difference[1]:
-                if pt in set(corepts1):
-                    # If any core points are different, we're in trouble. Border
-                    # points can be in different clusters though.
-                    return False
-
-    return True
-
-# Helper function to plot DBSCAN results based on DBSCAN example in scikit-learn user guide
-# If data has more than two dimensions, the first two will be used
-def plot_dbscan_results(x, labels, core_sample_indices):
-    core_samples_mask=np.zeros_like(labels, dtype=bool)
-    core_samples_mask[core_sample_indices] = True
-    n_clusters_=len(set(labels))-(1 if -1 in labels else 0)
-    n_noise_ = list(labels).count(-1)
-
-    unique_labels = set(labels)
-    colors = [plt.cm.Spectral(each) for each in np.linspace(0, 1, len(unique_labels))]
-
-    for k, col in zip(unique_labels, colors):
-        if k == -1:
-            col = [0, 0, 0, 1] # Black for noise
-
-        class_member_mask = (labels == k)
-
-        if k == 65539:
-            xy = x[class_member_mask]
-            plt.plot(xy[:, 0], xy[:, 1], 'o', markerfacecolor=tuple(col),
-                markeredgecolor='k', markersize=14)
-
-            xy = x[class_member_mask & core_samples_mask]
-            plt.plot(xy[:, 0], xy[:, 1], 'o', markerfacecolor=tuple(col),
-                markeredgecolor='k', markersize=4)
-        else:
-            xy = x[class_member_mask]
-            plt.plot(xy[:, 0], xy[:, 1], 'o', markerfacecolor=tuple(col),
-                markeredgecolor='k', markersize=6)
-
-        '''
-        xy = x[class_member_mask & core_samples_mask]
-        plt.plot(xy[:, 0], xy[:, 1], 'o', markerfacecolor=tuple(col),
-            markeredgecolor='k', markersize=14)
-
-        xy = x[class_member_mask & ~core_samples_mask]
-        plt.plot(xy[:, 0], xy[:, 1], 'o', markerfacecolor=tuple(col),
-            markeredgecolor='k', markersize=6)
-        '''
-
-
-    # Show clusters (and noise)
-    plt.title(f'Estimated number of clusters: {n_clusters_}')
-    plt.show()
-
-class TestGriDBSCAN(unittest.TestCase):
-    def test_one(self):
-        print('\nRunning test_one:')
-        n_samples = 4000
-        n_blobs = 4
-        X, y_true = make_blobs(n_samples=n_samples,
-                               centers=n_blobs,
-                               cluster_std=0.60,
-                               random_state=0)
-        X = X[:, ::-1]
-
-        plt.figure(1)
-        plt.scatter(X[:,0], X[:,1])
-        plt.show()
-
-        X, y_true = make_moons(n_samples=n_samples, noise=0.1)
-        plt.figure(1)
-        plt.scatter(X[:,0], X[:,1], s=100)
-        plt.show()
-        print('Done with test_one.')
-        self.assertEqual(1,1)
-
-    def test_two(self):
-        print('\nRunning test_two:')
-        n_samples = 4000
-        n_blobs = 4
-        X, y_true = make_blobs(n_samples=n_samples,
-                               centers=n_blobs,
-                               cluster_std=0.60,
-                               random_state=0)
-        X = X[:, ::-1]
-
-        mygridbscan=GriDBSCAN(eps=0.2,min_samples=10).fit(X)
-
-        print('Done with test_two.')
-        self.assertEqual(1,1)
-
-    def test_minmax(self):
-        print('\nRunning test_minmax:')
-        n_samples = 10000
-        n_blobs = 4
-        X, y_true = make_blobs(n_samples=n_samples,
-                               centers=n_blobs,
-                               cluster_std=0.60,
-                               random_state=0)
-        X = X[:, ::-1]
-        print(X)
-
-        mygridbscan=GriDBSCAN(eps=0.2,min_samples=10).fit(X)
-        mygridbscan=GriDBSCAN(eps=0.2,min_samples=10,grid=(2,2)).fit(X)
-        mygridbscan=GriDBSCAN(eps=0.2,min_samples=10,grid=(6,2)).fit(X)
-
-    def test_innerouter(self):
-        print('\nRunning test_innerouter:')
-        X = np.array( [ [  8, 8],
-                        [2.1, 4],
-                        [ -4, 3],
-                        [  0, 0],
-                        [  3,-2],
-                        [  4, 1],
-                        [  0, 4.1] ] )
-        print(X)
-
-        mygridbscan=GriDBSCAN(eps=0.2,min_samples=10,grid=(4,5)).fit(X)
-
-    def test_blobs(self):
-        print('\nRunning test_blobs:')
-        n_samples = 1000
-        n_blobs = 4
-        X, y_true = make_blobs(n_samples=n_samples,
-                               centers=n_blobs,
-                               cluster_std=0.60,
-                               random_state=2)
-        X = X[:, ::-1]
-
-        # Show points
-        plt.figure(1)
-        plt.scatter(X[:,0], X[:,1])
-        plt.show()
-
-        mygridbscan=GriDBSCAN(eps=0.5,min_samples=4,grid=(6,2)).fit(X)
-
-        print('GriDBSCAN')
-        print(mygridbscan.labels_)
-        print(mygridbscan.core_sample_indices_)
-
-        print('DBSCAN')
-        refdbscan=sklDBSCAN(eps=0.5,min_samples=4).fit(X)
-        print(refdbscan.labels_)
-        print(refdbscan.core_sample_indices_)
-
-class TestGriDBSCANAuto(unittest.TestCase):
-    def test_auto1(self):
-        # 100 iterations generally seems to be enough to get an ambiguous border point
-        for rs in range(1000):
-            n_samples = 1000
-            n_blobs = 4
-            X, y_true = make_blobs(n_samples=n_samples,
-                                   centers=n_blobs,
-                                   cluster_std=0.60,
-                                   random_state=rs)
-            X = X[:, ::-1]
-
-            '''
-            # Shuffle the data to force (possibly) some border points to be different
-            shuffle, unshuffle = gen_shuffle_unshuffle_idx(X)
-            shuffleX = X[shuffle]
-            mydbscan=DBSCAN(eps=43,min_samples=4).fit(shuffleX)
-            # Unshuffle the results so they can be compared with original indices
-            unshuffled_labels=mydbscan.labels_[unshuffle]
-            unshuffled_corepts=np.array([shuffle[x] for x in mydbscan.core_sample_indices_])
-            mygridbscan=GriDBSCAN(eps=0.5,min_samples=4,grid=(3,4)).fit(shuffleX)
-            '''
-            mygridbscan=GriDBSCAN(eps=0.5,min_samples=4,grid=(3,4)).fit(X)
-
-            refdbscan=sklDBSCAN(eps=0.5,min_samples=4).fit(X)
-            print(mygridbscan.core_sample_indices_)
-            print(refdbscan.core_sample_indices_)
-            print(mygridbscan.labels_)
-            print(refdbscan.labels_)
-
-            uniquelabels1 = np.unique(mygridbscan.labels_)
-            uniquelabels2 = np.unique(refdbscan.labels_)
-            print(uniquelabels1)
-            print(uniquelabels2)
-
-            #plot_dbscan_results(X, mygridbscan.labels_, mygridbscan.core_sample_indices_)
-
-            #plot_dbscan_results(X, refdbscan.labels_, refdbscan.core_sample_indices_)
-
-            print(f'checking results for seed: {rs}')
-            self.assertEqual(True,dbscan_equivalent_results(
-                             #unshuffled_labels, unshuffled_corepts,
-                             mygridbscan.labels_, mygridbscan.core_sample_indices_,
-                             refdbscan.labels_, refdbscan.core_sample_indices_))
-
-
-if __name__ == '__main__':
-    import unittest
-    import logging
-
-    from sklearn.datasets import make_blobs, make_moons
-    from scipy.spatial import distance
-    from sklearn.metrics import pairwise
-    import matplotlib.pyplot as plt
-    from numpy.random import normal
-
-    from sklearn.cluster import DBSCAN as sklDBSCAN
-
-    # Set up logging subsystem. Level should be one of: CRITICAL, ERROR, WARNING, INFO, DEBUG, NOTSET
-    logging.basicConfig()
-    # DEBUG is a good level for unit tests, but you can change to INFO if you want to shut it up
-    # dbscan_logger=logging.get_logger('dbscan')
-    # dbscan_logger.setLevel(logging.DEBUG)
-    unittest.main()
