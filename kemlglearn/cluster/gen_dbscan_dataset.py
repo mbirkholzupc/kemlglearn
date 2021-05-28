@@ -59,9 +59,31 @@ def gen_square(center,halflength,n,random_state=None):
     """
     square_rng = np.random.default_rng() if random_state == None else np.random.default_rng(random_state)
 
-    xoffset=[halflength*np.random.uniform(-1,1) for x in range(n)]
-    yoffset=[halflength*np.random.uniform(-1,1) for x in range(n)]
+    xoffset=[halflength*square_rng.uniform(-1,1) for x in range(n)]
+    yoffset=[halflength*square_rng.uniform(-1,1) for x in range(n)]
     points=np.array([[center[0]+x, center[1]+y] for x, y in zip(xoffset,yoffset)])
+
+    return points
+
+def gen_rectangle(topleft,width,height,n,random_state=None):
+    """Generate square uniform distribution
+
+    This function generates a uniform distribution of 2D points within a square range
+
+    Parameters:
+
+    :param topleft: tuple with (x,y) of top left corner of rectangle
+    :param width: width of rectangle
+    :param height: height of rectangle
+    :param n: number of points to generate
+
+    :return: list of points (each point is a tuple)
+    """
+    rect_rng = np.random.default_rng() if random_state == None else np.random.default_rng(random_state)
+
+    xoffset=[width*rect_rng.uniform(0,1) for x in range(n)]
+    yoffset=[height*rect_rng.uniform(0,1) for x in range(n)]
+    points=np.array([[topleft[0]+x, topleft[1]+y] for x, y in zip(xoffset,yoffset)])
 
     return points
 
@@ -84,7 +106,7 @@ def gen_shape(segments,radius,n,random_state=None):
     # distribution than longer ones, but it's good enough. Additionally, it creates
     # interesting patterns of less-dense and more-dense areas within a cluster. If
     # there's time it can be rewritten to be sampled from a PDF built on line
-    # segment length
+    # segment length (or might be a good True/False parameter)
     shape_rng = np.random.default_rng() if random_state == None else np.random.default_rng(random_state)
     num_segments=len(segments)
     random_segments=shape_rng.integers(low=0,high=num_segments,size=n)
@@ -215,6 +237,22 @@ def gen_dbscan_moons(samples, noise=0.1,random_state=None):
 
     return X
 
+def gen_gridbscan_synth10k(random_state=None):
+    """Generate dataset similar to synthetic dataset of 10k points with
+       10% noise
+
+    Parameters:
+
+    :return: list of points (each point is a tuple)
+    """
+    points=np.concatenate((gen_circle((275,175),150,7000,random_state=random_state),
+                           gen_circle((600,100),50,1000,random_state=random_state),
+                           gen_circle((600,250),50,1000,random_state=random_state),
+                           gen_rectangle((0,0),700,350,1000,random_state=random_state)))
+
+    return points
+
+
 class TestGenDbscanDataset(unittest.TestCase):
     def test_gen_shape(self):
         print('\nRunning test_gen_shape:')
@@ -270,6 +308,16 @@ class TestGenDbscanDataset(unittest.TestCase):
         dbscan_ds3=gen_dbscan_dataset3()
         plt.figure(1)
         plt.scatter(dbscan_ds3[:,0], dbscan_ds3[:,1])
+        plt.show()
+
+        self.assertEqual(1,1)
+
+    def test_gen_gridbscan_synth10k(self):
+        print('\nRunning test_gen_dbscan_dataset3:')
+
+        synth10k=gen_gridbscan_synth10k()
+        plt.figure(1)
+        plt.scatter(synth10k[:,0], synth10k[:,1])
         plt.show()
 
         self.assertEqual(1,1)
