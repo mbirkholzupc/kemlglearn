@@ -91,7 +91,7 @@ class DBSCAN(BaseEstimator, ClusterMixin):
         self.core_sample_indices_ = []
 
         # Algorithm below is a near-verbatim implementation of the algorithm in
-        # DBSCAN Revisited (Schubert, et al)
+        # DBSCAN Revisited, Revisited (Schubert, et al)
         # Added: core point indices
         for i,pt in enumerate(X):
             if self.labels_[i] != NO_CLUSTER:
