@@ -95,7 +95,7 @@ class GriDBSCAN(BaseEstimator, ClusterMixin):
 
     Attributes:
     core_sample_indices_: ndarray of shape(n_core_samples,)
-      Indices of core samples (TODO: decide if this is sufficient or if it needs to tell us core/border/noise for each point for efficiency)
+      Indices of core samples
     """
     def __init__(self, eps=0.5, min_samples=5, metric='euclidean', metric_params=None,
                  algorithm='auto', leaf_size=30, p=None, n_jobs=None, grid=None):
@@ -128,35 +128,6 @@ class GriDBSCAN(BaseEstimator, ClusterMixin):
         """
         # Do GriDBSCAN here
         # Step 1: Build grid
-        # Note: Could make this O(n) instead of #attributes*O(n), but supposedly O(n) time is fairly
-        #       negligible compared to the O(n^2) the DBCAN portion takes
-        #       My first attempt at only traversing the array once was foiled by python's implementation
-        #       and was about 10x as slow but maybe there's a way to get the best of both worlds with
-        #       a lambda?
-        # TODO: Measure and find out if it matters
-        '''
-        start_time=time.time()
-        mins = [x for x in X[0]]
-        maxs = [x for x in X[0]]
-        for row in X:
-            for i,val in enumerate(row):
-                if val < mins[i]:
-                    mins[i]=val
-                elif val > maxs[i]:
-                    maxs[i]=val
-        end_time=time.time()
-        print(X[0])
-        print(mins)
-        print(maxs)
-        print('time: ' + str(end_time-start_time))
-        '''
-
-        # Less code, but takes longer
-        #start_time=time.time()
-        #mins=[min(X[:,i]) for i in range(len(X[0]))]
-        #maxs=[max(X[:,i]) for i in range(len(X[0]))]
-        #end_time=time.time()
-
         mins=[]
         maxs=[]
         for i in range(len(X[0])):
@@ -164,6 +135,12 @@ class GriDBSCAN(BaseEstimator, ClusterMixin):
             maxs.append(max(X[:,i]))
         mins=np.array(mins)
         maxs=np.array(maxs)
+
+        # Less code, but takes longer
+        #start_time=time.time()
+        #mins=[min(X[:,i]) for i in range(len(X[0]))]
+        #maxs=[max(X[:,i]) for i in range(len(X[0]))]
+        #end_time=time.time()
 
         # Calculate and validate grid spacings
         dimrange=[themax-themin for themax, themin in zip(maxs,mins)]
@@ -203,62 +180,6 @@ class GriDBSCAN(BaseEstimator, ClusterMixin):
                     # should be minimal impact
                     if (llimit <= pt).all() and (pt <= ulimit).all():
                         self.partitions[it.multi_index].append(i)
-
-        """
-        # TODO: See if I should revive this code to speed things up. The other way is C*O(n), but
-        #       this way could potentially be O(n) * <number much smaller than C> since I think most points won't
-        #       be outside points in general (at least when grid dimensions are quite a bit larger than 2*eps
-        print('partitions')
-        for idx,pt in enumerate(X):
-            # This calculates inner points
-            # It was a lot easier to read like this:
-            #partition = tuple([int((a-b)/c) for a,b,c in zip(pt, mins, gridspacing)])
-            # But, there's a corner case where the max point in each dimension will get put in an out of bounds
-            # grid space, so move it back into the grid if it's right on the edge (using d, e below)
-            partition = tuple([int((a-b)/c) if a!=d else (e-1) for a,b,c,d,e in zip(pt, mins, gridspacing, maxs, self.grid)])
-            try:
-                self.inner_pts[partition].append(list(pt))
-            except AttributeError:
-                self.inner_pts[partition]=list(pt)
-
-            # Now check if the point is close enough to any edges of the partition that it could be an outer
-            # point in another partition. It is most efficient to check if it is guaranteed to only be an
-            # inner point first since we can get that with simple math. After that, if it's near an edge
-            # or multiple edges, there is more math to do. But, if we can just detect which dimensions
-            # this condition applies to, we can easily add the point to all partitions where it's an outer
-            # point.
-            iimin = [m+p*s+self.eps for p,m,s in zip(partition,mins,gridspacing)]
-            iimax = [m+(p+1)*s-self.eps for p,m,s in zip(partition,mins,gridspacing)]
-            print('iimin: ' + str(iimin))
-            print('iimax: ' + str(iimax))
-            closelow = TODO
-
-            print('partition: ' + str(partition))
-            print(pt)
-            print(mins)
-            print(gridspacing)
-            print(partition)
-            if idx==2:
-                break
-        """
-        
-        '''
-        for idx,pt in enumerate(X):
-            # This calculates inner points
-            partition = tuple([int((a-b)/c) for a,b,c in zip(pt, mins, gridspacing)])
-            try:
-                self.inner_pts[partition].append(list(pt))
-            except KeyError:
-                self.inner_pts[partition]=list(pt)
-
-
-            print(pt)
-            print(mins)
-            print(gridspacing)
-            print(partition)
-            if idx==2:
-                break
-        '''
 
         # Step 3: Run DBSCAN on each partition
         # Note: This step would be the highest-priority function to parallelize as it takes O(n/C)^2 time.
@@ -334,6 +255,7 @@ class GriDBSCAN(BaseEstimator, ClusterMixin):
                                 # If we know this is a core point already, merge clusters
                                 merge_clusters(cl_eq_list, cid[glidx], clid)
                                 if len(pot_eq_list[glidx]) != 0:
+                                    # Should never see this
                                     print("WHATWHAT!")
                             else:
                                 # Mark this point as a core point and set current cluster if it hasn't been set
@@ -359,8 +281,6 @@ class GriDBSCAN(BaseEstimator, ClusterMixin):
                 self.labels_.append(NOISE)  # Translate noise from 0 to -1
             else:
                 # Use the cluster group ID as the final label
-                # TODO: This
-                #self.labels_.append(cluster_core[0])
                 self.labels_.append(cl_eq_list[cluster_core[0]])
             if cluster_core[1]:
                 self.core_sample_indices_.append(i)
