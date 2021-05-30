@@ -260,7 +260,7 @@ class TestGenDbscanDataset(unittest.TestCase):
         segmentlist=[((25,50), (65,100)),((65,100),(30,85))]
         shape=gen_shape(segmentlist,1,1000)
         plt.figure(1)
-        plt.scatter(shape[:,0], shape[:,1])
+        plt.scatter(shape[:,0], shape[:,1],s=2)
         plt.show()
         self.assertEqual(1,1)
 
@@ -269,7 +269,7 @@ class TestGenDbscanDataset(unittest.TestCase):
 
         circle=gen_circle((500,500),315,1000)
         plt.figure(1)
-        plt.scatter(circle[:,0], circle[:,1])
+        plt.scatter(circle[:,0], circle[:,1],s=2)
         plt.show()
         self.assertEqual(1,1)
 
@@ -278,7 +278,7 @@ class TestGenDbscanDataset(unittest.TestCase):
 
         square=gen_square((500,500),50,10000)
         plt.figure(1)
-        plt.scatter(square[:,0], square[:,1])
+        plt.scatter(square[:,0], square[:,1],s=2)
         plt.show()
         self.assertEqual(1,1)
 
@@ -287,7 +287,7 @@ class TestGenDbscanDataset(unittest.TestCase):
 
         dbscan_ds1=gen_dbscan_dataset1()
         plt.figure(1)
-        plt.scatter(dbscan_ds1[:,0], dbscan_ds1[:,1])
+        plt.scatter(dbscan_ds1[:,0], dbscan_ds1[:,1],s=2)
         plt.show()
 
         self.assertEqual(1,1)
@@ -297,7 +297,7 @@ class TestGenDbscanDataset(unittest.TestCase):
 
         dbscan_ds2=gen_dbscan_dataset2()
         plt.figure(1)
-        plt.scatter(dbscan_ds2[:,0], dbscan_ds2[:,1])
+        plt.scatter(dbscan_ds2[:,0], dbscan_ds2[:,1],s=2)
         plt.show()
 
         self.assertEqual(1,1)
@@ -307,7 +307,7 @@ class TestGenDbscanDataset(unittest.TestCase):
 
         dbscan_ds3=gen_dbscan_dataset3()
         plt.figure(1)
-        plt.scatter(dbscan_ds3[:,0], dbscan_ds3[:,1])
+        plt.scatter(dbscan_ds3[:,0], dbscan_ds3[:,1],s=2)
         plt.show()
 
         self.assertEqual(1,1)
@@ -317,7 +317,7 @@ class TestGenDbscanDataset(unittest.TestCase):
 
         synth10k=gen_gridbscan_synth10k()
         plt.figure(1)
-        plt.scatter(synth10k[:,0], synth10k[:,1])
+        plt.scatter(synth10k[:,0], synth10k[:,1],s=2)
         plt.show()
 
         self.assertEqual(1,1)
