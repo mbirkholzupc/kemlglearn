@@ -117,6 +117,7 @@ class GriDBSCAN(BaseEstimator, ClusterMixin):
         # If dims are (w, x, y, z), then it is like this: (x*y*z, y*z, z, 1)
         cumprod=[np.prod(self.grid[0:x+1]) for x in range(len(self.grid))]
         self.gridbase=np.prod(self.grid)/cumprod
+        self.dbscan_total_time_ = 0
 
     def fit(self, X, y=None, sample_weight=None):
         """
@@ -195,9 +196,12 @@ class GriDBSCAN(BaseEstimator, ClusterMixin):
                 # Run DBSCAN only on the points in this partition
                 partX=X[self.partitions[it.multi_index]]
                 if len(partX) > 0:
+                    start_time=time.time()
                     dbscan=DBSCAN(eps=self.eps, min_samples=self.min_samples, metric=self.metric,
                                   metric_params=self.metric_params, algorithm=self.algorithm,
                                   leaf_size=self.leaf_size, p=self.p, n_jobs=self.n_jobs).fit(partX)
+                    end_time=time.time()
+                    self.dbscan_total_time_ += (end_time-start_time)
                     self.partition_labels[it.multi_index]=dbscan.labels_
                     self.partition_corepts[it.multi_index]=dbscan.core_sample_indices_
                 else:
