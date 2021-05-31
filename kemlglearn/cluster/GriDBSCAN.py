@@ -119,16 +119,15 @@ class GriDBSCAN(BaseEstimator, ClusterMixin):
         self.gridbase=np.prod(self.grid)/cumprod
         self.dbscan_total_time_ = 0
 
-    def fit(self, X, y=None, sample_weight=None):
+    def _step1_build_grid(self, X):
         """
-        Clusters the examples using DBSCAN algorithm and returns DBSCAN object
-        :param X: data to cluster
-        :param y: unused since this is unsupervised, but needed for API consistency
-        :param sample_weight: unused (future: can make a single point count as more than 1)
-        :return: DBSCAN object after clustering
+        Build the grid and validate the spacing
+        Note: Could make this O(n) instead of #attributes*O(n), but supposedly O(n) time is fairly
+              negligible compared to the O(n^2) the DBCAN portion takes
+              My first attempt at only traversing the array once was foiled by python's implementation
+              and was about 10x as slow but maybe there's a way to get the best of both worlds with
+              a lambda?
         """
-        # Do GriDBSCAN here
-        # Step 1: Build grid
         mins=[]
         maxs=[]
         for i in range(len(X[0])):
@@ -137,7 +136,7 @@ class GriDBSCAN(BaseEstimator, ClusterMixin):
         mins=np.array(mins)
         maxs=np.array(maxs)
 
-        # Less code, but takes longer
+        # Less code, but takes longer unfortunately, so going with what I did above
         #start_time=time.time()
         #mins=[min(X[:,i]) for i in range(len(X[0]))]
         #maxs=[max(X[:,i]) for i in range(len(X[0]))]
@@ -152,7 +151,12 @@ class GriDBSCAN(BaseEstimator, ClusterMixin):
             # TODO: Tell them which dimension and specific numbers so they can fix it
             raise Exception("Error: Invalid grid spacing detected. Reduce number of partitions in at least one dimension.")
 
-        # Step 2: Group points into partitions
+        return mins, maxs, gridspacing
+
+    def _step2_partition_points(self,X,mins,gridspacing):
+        """
+        Partition points into grid cells
+        """
         # Create a grid in D-dimensional space with a numpy array that can hold an object per cell.
         # We will put a reference to a regular python list in each cell since it is an efficient
         # structure to use for a growing list. Each list will hold the indices of all inner and outer
@@ -182,11 +186,16 @@ class GriDBSCAN(BaseEstimator, ClusterMixin):
                     if (llimit <= pt).all() and (pt <= ulimit).all():
                         self.partitions[it.multi_index].append(i)
 
-        # Step 3: Run DBSCAN on each partition
-        # Note: This step would be the highest-priority function to parallelize as it takes O(n/C)^2 time.
-        #       However, the paper compares only single-CPU/single-thread performance, so that's the
-        #       benchmark we'll stick with.
+        return
 
+    def _step3_run_dbscan(self,X):
+        """
+        Run DBSCAN on each grid cell
+        No inputs/outputs since everything belongs to the class
+        Note: This step would be the highest-priority function to parallelize as it takes O((n/C)^2) time
+              and each DBSCAN can be run totally independently of the others. However, the paper compares
+              only single-CPU/single-thread performance, so that's the benchmark we'll stick with.
+        """
         # Create D-dimensional grids to hold results (labels, core points) of DBSCAN for each partition
         self.partition_labels = np.empty(self.grid,dtype='object')
         self.partition_corepts = np.empty(self.grid,dtype='object')
@@ -208,7 +217,13 @@ class GriDBSCAN(BaseEstimator, ClusterMixin):
                     self.partition_labels[it.multi_index]=np.array([])
                     self.partition_corepts[it.multi_index]=np.array([])
 
-        # Step 4: Merge clusters
+        return
+
+    def _step4_merge_clusters(self,X):
+        """
+        Merge the clusters according to GriDBSCAN paper's algorithm
+        All inputs/outputs passed through class
+        """
         # Create cluster-equivalence list
         # TODO: Maybe this could be built up during DBSCAN iterations? Doesn't matter much since this is so
         #       short compared to running DBSCAN
@@ -291,6 +306,29 @@ class GriDBSCAN(BaseEstimator, ClusterMixin):
 
         self.labels_=np.array(self.labels_)
         self.core_sample_indices_=np.array(self.core_sample_indices_)
+
+        return
+
+    def fit(self, X, y=None, sample_weight=None):
+        """
+        Clusters the examples using DBSCAN algorithm and returns DBSCAN object
+        :param X: data to cluster
+        :param y: unused since this is unsupervised, but needed for API consistency
+        :param sample_weight: unused (future: can make a single point count as more than 1)
+        :return: DBSCAN object after clustering
+        """
+        # Do GriDBSCAN here
+        # Step 1: Build grid
+        mins, maxs, grid_spacing = self._step1_build_grid(X)
+
+        # Step 2: Group points into partitions
+        self._step2_partition_points(X,mins,grid_spacing)
+
+        # Step 3: Run DBSCAN on each partition
+        self._step3_run_dbscan(X)
+
+        # Step 4: Merge clusters
+        self._step4_merge_clusters(X)
 
         return self
 
